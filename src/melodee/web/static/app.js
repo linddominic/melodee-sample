@@ -1071,17 +1071,61 @@ const kits = {
     this.draw();
   },
   // ---- Sounds: a folder of the source, or (with words typed or a filter on) every sound under it that fits ----
-  async browse(folder) {
+  // Into a folder; where one was (folder, words, filters, scroll, the sound picked) is kept for Back.
+  async browse(folder, remember = true) {
+    if (remember && folder !== this.folder) this.remember();
     this.folder = folder;
+    this.crumbsOpen = false;
     return this.render();
+  },
+  remember() {
+    this.past = this.past || [];
+    this.past.push({folder: this.folder, words: $("#sound-search").value, type: this.type, cat: this.cat,
+                    scroll: $("#picker-list").scrollTop, sel: this.sel});
+    if (this.past.length > 50) this.past.shift();
+  },
+  async back() {
+    const was = this.past && this.past.pop();
+    if (!was) return;
+    this.folder = was.folder;
+    $("#sound-search").value = was.words;
+    this.type = was.type;
+    this.cat = was.cat;
+    this.crumbsOpen = false;
+    await this.render();
+    if (was.sel >= 0 && this.rows[was.sel]) { this.sel = was.sel; this.rows.forEach((li, n) => li.classList.toggle("sel", n === was.sel)); }
+    $("#picker-list").scrollTop = was.scroll;
   },
   filtering() { return !!($("#sound-search").value.trim() || this.type || this.cat); },
   crumbs() {
     const nav = $("#picker-crumbs"), parts = this.folder ? this.folder.split("/") : [];
     nav.innerHTML = "";
-    const crumb = (label, to) => { const a = document.createElement("a"); a.href = "#"; a.textContent = label; a.addEventListener("click", e => { e.preventDefault(); this.browse(to); }); return a; };
+    const backBtn = $("#sound-back");
+    if (backBtn) backBtn.disabled = !(this.past && this.past.length);
+    const sep = () => { const s = document.createElement("span"); s.className = "sep"; s.textContent = "/"; return s; };
+    const crumb = (label, to) => {
+      const a = document.createElement("a"); a.href = "#"; a.textContent = label; a.title = label;
+      a.addEventListener("click", e => { e.preventDefault(); this.browse(to); });
+      return a;
+    };
     nav.append(crumb(this.source === "sd" ? "SD card" : "Factory samples", ""));
-    parts.forEach((p, i) => { const s = document.createElement("span"); s.className = "sep"; s.textContent = "/"; nav.append(s, crumb(p, parts.slice(0, i + 1).join("/"))); });
+    const fold = parts.length > 3 && !this.crumbsOpen ? parts.length - 2 : 0; // folders folded into "…"
+    if (fold) {
+      const more = document.createElement("button");
+      more.type = "button"; more.className = "crumb-more"; more.textContent = "…";
+      more.title = parts.slice(0, fold).join(" / ");
+      more.addEventListener("click", () => { this.crumbsOpen = true; this.crumbs(); });
+      nav.append(sep(), more);
+    }
+    parts.forEach((p, i) => { if (i >= fold) nav.append(sep(), crumb(p, parts.slice(0, i + 1).join("/"))); });
+    if (nav.lastElementChild && parts.length) nav.lastElementChild.classList.add("here");
+    if (parts.length) {
+      const all = document.createElement("button");
+      all.type = "button"; all.className = "scope-x"; all.title = "Search everything again"; all.textContent = "✕";
+      all.addEventListener("click", () => this.browse(""));
+      nav.append(all);
+    }
+    $("#sound-search").placeholder = parts.length ? `Search in ${parts[parts.length - 1]}…` : "Search sounds and folders: kick, hat 808, loop 120…";
   },
   async render() {
     const ul = $("#picker-list"), source = this.source, folder = this.folder, words = $("#sound-search").value.trim().toLowerCase();
@@ -1097,9 +1141,10 @@ const kits = {
       const shown = data.entries.filter(e => e.dir || audioKinds.test(e.name));
       this.fill(shown.map(e => {
         const rel = folder ? folder + "/" + e.name : e.name;
-        return e.dir ? {dir: true, rel, name: e.name} : soundItem(rel, e.size);
+        return e.dir ? {dir: true, rel, name: e.name, count: this.counted(source, rel)} : soundItem(rel, e.size);
       }), [], shown.length ? "" : "No samples here");
       this.chips(); // the categories under this folder, once the list of every sound is in
+      if (!this.indexed(source)) this.sounds(source).then(() => { if (this.asked === asked) this.render(); }).catch(() => {}); // then the counts
       return;
     }
     if (!this.indexed(source)) { ul.innerHTML = ""; this.say(ul, `Getting the list of sounds on the ${source === "sd" ? "card" : "MPC"}…`); }
@@ -1116,9 +1161,29 @@ const kits = {
     const found = fits.filter(([, item]) => !this.cat || item.cat === this.cat);
     if (parts.length) found.sort((a, b) => b[0] - a[0]);
     const where = this.folder ? ` in ${this.folder.split("/").pop()}` : "";
-    this.fill(found.slice(0, 300).map(f => f[1]), parts,
-      found.length ? "" : `No sounds fit${where}, of ${index.files.length.toLocaleString()}`,
+    const folders = parts.length && !this.cat ? this.folderHits(index, parts) : [];
+    this.fill([...folders, ...found.slice(0, 300).map(f => f[1])], parts,
+      found.length || folders.length ? "" : `No sounds fit${where}, of ${index.files.length.toLocaleString()}`,
       found.length > 300 ? `The best 300 of ${found.length.toLocaleString()}: type more or filter to narrow it` : `${found.length.toLocaleString()} ${found.length === 1 ? "sound" : "sounds"}${where}`);
+  },
+  // Folders under the one open whose own name fits every word, best first: a pack found by its name ("garage").
+  folderHits(index, words) {
+    const head = this.folder ? this.folder.toLowerCase() + "/" : "", hits = [];
+    for (const [rel, count] of index.folders) {
+      const low = rel.toLowerCase();
+      if (head && !low.startsWith(head)) continue;
+      const name = low.slice(low.lastIndexOf("/") + 1);
+      if (!words.every(w => name.includes(w))) continue;
+      const exact = words.join(" ") === name ? 2 : words.some(w => (" " + soundWords(name)).includes(" " + w)) ? 1 : 0;
+      hits.push([exact, -rel.split("/").length, count, rel]);
+    }
+    hits.sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
+    return hits.slice(0, 6).map(([, , count, rel]) => ({dir: true, rel, name: rel.slice(rel.lastIndexOf("/") + 1), count, found: true}));
+  },
+  // How many sounds are under a folder, once the list of every sound is in; else undefined.
+  counted(source, rel) {
+    const index = this.indexed(source) && this.index[source].value;
+    return index ? index.folders.get(rel) || 0 : undefined;
   },
   under(index) {
     if (!this.folder) return index.files;
@@ -1141,9 +1206,22 @@ const kits = {
         li.innerHTML = glyphs.dir;
         const name = document.createElement("span");
         name.className = "name";
-        name.textContent = item.name;
+        const title = document.createElement("b");
+        title.append(markWords(item.name, item.found ? words : []));
+        name.append(title);
+        const bits = [];
+        if (item.found) { const at = item.rel.lastIndexOf("/"); if (at > 0) bits.push(item.rel.slice(0, at).split("/").slice(-2).join(" / ")); }
+        if (item.count !== undefined) bits.push(`${item.count.toLocaleString()} ${item.count === 1 ? "sound" : "sounds"}`);
+        if (bits.length) { const small = document.createElement("small"); small.textContent = bits.join(" · "); name.append(small); }
+        li.title = item.rel;
         li.append(name);
-        li.addEventListener("click", () => this.browse(item.rel));
+        li.addEventListener("click", () => {
+          if (!item.found) return this.browse(item.rel);
+          this.remember(); // the search it was found by, to come back to
+          $("#sound-search").value = "";
+          this.cat = "";
+          this.browse(item.rel, false);
+        });
         ul.append(li);
       } else {
         const li = this.soundRow(item, words);
@@ -1259,8 +1337,17 @@ const kits = {
       this.index[source] = this.get("/api/kits/sounds?" + this.q({source}), true)
         .then(d => {
           const sizes = d.sizes || [];
-          const index = {files: d.files.map((f, i) => soundItem(f, sizes[i])), full: d.full};
+          const index = {files: d.files.map((f, i) => soundItem(f, sizes[i])), full: d.full, folders: new Map()};
+          for (const item of index.files) {
+            let folder = item.folder;
+            while (folder) {
+              index.folders.set(folder, (index.folders.get(folder) || 0) + 1);
+              const at = folder.lastIndexOf("/");
+              folder = at > 0 ? folder.slice(0, at) : "";
+            }
+          }
           this.index[source].done = true;
+          this.index[source].value = index;
           return index;
         })
         .catch(e => { delete this.index[source]; throw e; });
@@ -1285,6 +1372,9 @@ const kits = {
       e.preventDefault();
       if (this.kit && this.pad !== null) this.put(this.pad, this.rows[this.sel].dataset.id);
       else this.audition(this.rows[this.sel].dataset.url, true);
+    } else if (e.key === "Backspace" && e.target === $("#picker-list")) {
+      e.preventDefault();
+      this.back();
     } else if (e.key === "Escape") {
       e.preventDefault();
       $("#sound-search").value = "";
@@ -1359,8 +1449,10 @@ const kits = {
       this.source = b.dataset.source;
       $$("#sound-source .seg").forEach(x => x.setAttribute("aria-pressed", x === b));
       this.cat = "";
-      this.browse("");
+      this.past = [];
+      this.browse("", false);
     }));
+    $("#sound-back").addEventListener("click", () => this.back());
     $$("#sound-types .seg").forEach(b => b.addEventListener("click", () => { this.type = b.dataset.type; this.render(); }));
     let typing = 0;
     $("#sound-search").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => this.render(), 120); });

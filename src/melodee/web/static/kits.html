@@ -64,7 +64,10 @@
       <button type="button" class="seg" data-type="loop" aria-pressed="false">Loops</button>
     </div>
     <div class="sound-cats" id="sound-cats" role="group" aria-label="Category"></div>
-    <nav class="crumbs" id="picker-crumbs" aria-label="Folder"></nav>
+    <div class="sound-nav">
+      <button type="button" class="back-btn" id="sound-back" title="Back (Backspace in the list)" aria-label="Back" disabled>‹</button>
+      <nav class="crumbs" id="picker-crumbs" aria-label="Folder"></nav>
+    </div>
     <ul class="lanes picker-list" id="picker-list" tabindex="0" aria-label="Sounds: arrow keys to step through, Enter to assign"></ul>
     <p class="sounds-hint" id="sounds-hint"></p>
   </section>

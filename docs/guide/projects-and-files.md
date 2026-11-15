@@ -176,6 +176,12 @@ on the card that hold a kit: `Melodee/Projects` and the stock app's
   ("hat" also finds `HH_01.wav`). Matches in the file's name come first.
   **One-shots** and **Loops**, and the categories under them with how many
   there are, narrow the list; a category alone lists every sound of it.
+- Folders whose name fits the words show above the sounds, with how many
+  sounds are in each: open one and the search box searches in it. **✕**
+  beside the folder's path searches everything again, and **‹** (or
+  Backspace in the list) goes back to where you were, with the words,
+  filters and scroll you had. A long path shows its last two folders; **…**
+  shows the rest.
 - Click a sound to hear it. With the list or the search box in use, **↑**
   and **↓** step through the sounds and play each, **Enter** puts the one
   picked on the pad picked, and **Esc** clears the search.
