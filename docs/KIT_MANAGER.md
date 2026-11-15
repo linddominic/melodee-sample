@@ -177,6 +177,7 @@ every other write.
 | GET | `/api/kits/audio?id=&pad=&layer=` | The layer's file as it is (404 missing, 415 no browser preview) |
 | GET | `/api/kits/samples?source=sd\|factory&path=` | A folder to pick samples from |
 | GET | `/api/kits/sample?sample=` | A sample's file, to audition before assigning |
+| GET | `/api/kits/sounds?source=sd\|factory` | Every sound under the source (`files`, paths under it; `full` when the 40000 limit was reached), searched in the page |
 | POST | `/api/kits/new?name=` | An empty kit in `Melodee/Projects/Kits` |
 | POST | `/api/kits/duplicate?id=&name=` | Any kit's first kit, copied into a new kit there |
 | POST | `/api/kits/pad?id=&pad=&sample=\|clear=1&level=&pan=&pitch=&fine=&play=` | One pad changed and the kit saved |
@@ -204,6 +205,61 @@ and shows the kit without a restart.
 - Pad parameters editable now: level, pan, tune, fine and play type. The
   rest (region, envelope, filter, mute group, layer play) is shown, not
   edited.
+
+### Playing pads in the browser
+
+- The page fetches each pad's file once and decodes it with Web Audio, so a
+  press sounds at once; the same decoded audio draws the pad's waveform. The
+  open bank's pads are fetched in turn, one request at a time, since the
+  server answers one at a time; a pad pressed before its turn is fetched at
+  once.
+- A press plays the pad's region (`start`–`end`, in the file's frames, read
+  from the WAV header) at its level, pan and tune; Note on pads stop on
+  release; a mute group chokes the others in it. Layers, velocity, envelopes
+  and filters are not played. The playhead is the Web Audio clock less the
+  output latency, so the line meets the sound.
+- Keys by `KeyboardEvent.code`: 1-4, Q-R, A-F, Z-V are pads 13-16 to 1-4 of
+  the open bank, so any keyboard layout plays the same places.
+- `/api/kits/audio` keeps each layer's reply for the last kit played while
+  its file's size and time stay the same, and forgets it on any pad edit,
+  rename or delete: reading a factory `.xpj` takes about 0.4 s on the MPC,
+  which every press used to pay.
+
+### Layout, search and drag and drop
+
+- Three columns that fill the window under the top bar: kits, the open
+  kit (pads beside the pad's details), and Sounds. Only the columns scroll;
+  below 760 px wide they stack and the page scrolls.
+- Search fetches `/api/kits/sounds` once a visit for the source and matches
+  every typed word in the path, in the page; the first 300 matches show.
+  The walk skips hidden names, links, and `autorun/` and `sample-base/` at
+  the card's top, as `card_place()` does, ten folders down at most.
+- A sound row drags with `application/x-melodee-sound` (its id); a pad
+  takes the drop and assigns it with `/api/kits/pad`. On a read-only kit the
+  page asks for a name, duplicates the kit, and assigns on the copy.
+
+### Speed
+
+Measured on an MPC Sample over USB: a request costs about 5 ms (name, connection, a 110 KB sample sent in 1 ms).
+Reading a kit costs about 0.4 s: a stock `.xpj` is a 50 KB gzip of about 3 MB of JSON, and JUCE's parse of it is
+nine tenths of that (47 ms of it on an Apple M-series host, gunzip 4 ms). So the Kits tab reads a kit as seldom as
+it can:
+
+- `reading()` makes a kit's details and every pad layer's audio reply in one read, kept for the last six kits while
+  their files' size and time stay the same: opening a kit and playing its pads is one read, not one per request.
+- A factory kit's reading is also kept on the card (`Melodee/.cache/kits/<hash>.kit`, keyed by path, size and
+  time): factory kits never change, so each is read once at all, across restarts. Card kits are not kept there.
+- The listing's summaries are kept in `Melodee/.cache/kit-summaries`, written when a listing has read every kit:
+  after the first start the list is complete at once. A listing reads for 250 ms at most and names the rest
+  `pending`, so the server (one request at a time) stays quick while the page asks again.
+- Every write here (pad, rename, delete) forgets what was read of that kit: a FAT card's two-second clock cannot
+  always tell the new file from the old.
+- `Connection: close` stays: with one request at a time, a browser's idle kept-alive connections would hold the
+  server, and on a USB link a new connection costs about a millisecond.
+
+The page shows waiting: a thin bar under the top bar for anything one asked for that takes over 120 ms (preloads
+and the list filling in are quiet), the kit row pulsing while it opens, a pad pulsing until its sound is in or
+while it is saved, and New, Duplicate, Rename, Delete and Assign held while a change is written.
 
 ### Tests
 
@@ -237,8 +293,8 @@ None of the following has been tried on an MPC Sample:
 - The stock app's own projects on the internal drive, `.xpm`/`.xty`
   programs and `.mldb` bank files are not listed.
 - A pad that plays an instrument (an `.sfz`, or a stock layered pad whose
-  layers could not be split) has no preview; previews play the whole file,
-  not the pad's region.
+  layers could not be split) has no preview. A pad plays its first layer the
+  browser can play, without velocity, envelope or filter.
 - Duplicating a factory kit refers to its samples on the internal drive;
   it does not copy them to the card.
 - Editing a kit that is open on the MPC is allowed with a warning: the

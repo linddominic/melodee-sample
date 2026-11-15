@@ -328,11 +328,12 @@ Reply WebApp::kit_request(const Request& request) {
     const std::string& path = request.path;
     const std::string id = query_of(request, "id");
     auto number = [&](const char* key) { return std::atoi(query_of(request, key).c_str()); };
-    if (get && path == "/api/kits") return kits.list(roots);
+    if (get && path == "/api/kits") return kits.list(roots, 250); // the rest on the page's next ask: the server stays quick
     if (get && path == "/api/kits/kit") return kits.detail(roots, id);
     if (get && path == "/api/kits/audio") return kits.pad_audio(roots, id, number("pad"), number("layer"));
     if (get && path == "/api/kits/sample") return kits.sample_audio(roots, query_of(request, "sample"));
     if (get && path == "/api/kits/samples") return kits.samples(roots, query_of(request, "source"), query_of(request, "path"));
+    if (get && path == "/api/kits/sounds") return kits.sounds(roots, query_of(request, "source"));
     if (!post) return fail(404, "Not found");
     Reply reply;
     if (path == "/api/kits/new") reply = kits.create(roots, query_of(request, "name"));

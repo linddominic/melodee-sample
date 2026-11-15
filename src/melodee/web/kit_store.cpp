@@ -12,9 +12,12 @@
 #include <unistd.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -26,6 +29,8 @@ namespace {
 constexpr const char* json_type = "application/json; charset=utf-8";
 constexpr uint64_t room_margin = uint64_t(8) << 20; // as web_app.cpp keeps back
 constexpr size_t list_limit = 1000;                 // kits listed at most
+constexpr size_t sound_limit = 40000;               // sounds a search covers at most
+constexpr int sound_depth = 10;                     // folders down a search looks
 
 Reply fail(int status, const std::string& words) { return {status, json_type, "{\"error\":" + json_text(words) + "}"}; }
 Reply ok(const std::string& json) { return {200, json_type, json}; }
@@ -313,12 +318,64 @@ std::string kit_file_name(const std::string& name) {
     return safe_name(trimmed + ".mldp", ".mldp");
 }
 
-const KitStore::Summary& KitStore::summary_of(const fs::path& path) {
+namespace {
+// The cache on the card (hidden, so no listing or search shows it): what reading a kit found, so a kit is read once
+// while its file stays the same, across restarts too. A factory kit, which never changes, is read once at all.
+constexpr const char* cache_folder = "Melodee/.cache/kits";
+constexpr const char* summaries_file = "Melodee/.cache/kit-summaries";
+constexpr size_t parsed_kept = 6; // kits kept read in memory: the open one and those just before it
+
+// Strings as <length>:<bytes>, so any byte may be in them.
+void put(std::string& out, const std::string& text) { out += std::to_string(text.size()); out += ':'; out += text; }
+void put(std::string& out, long long value) { put(out, std::to_string(value)); }
+bool take(const std::string& in, size_t& at, std::string& out) {
+    size_t colon = in.find(':', at);
+    if (colon == std::string::npos || colon == at || colon - at > 9) return false;
+    size_t size = 0;
+    for (size_t i = at; i < colon; ++i) {
+        if (in[i] < '0' || in[i] > '9') return false;
+        size = size * 10 + size_t(in[i] - '0');
+    }
+    if (colon + 1 + size > in.size()) return false;
+    out = in.substr(colon + 1, size);
+    at = colon + 1 + size;
+    return true;
+}
+bool take(const std::string& in, size_t& at, long long& out) {
+    std::string text;
+    if (!take(in, at, text) || text.empty()) return false;
+    char* end = nullptr;
+    out = std::strtoll(text.c_str(), &end, 10);
+    return *end == 0;
+}
+std::string read_text(const fs::path& path) {
+    auto bytes = read_file(path);
+    return std::string(bytes.begin(), bytes.end());
+}
+bool write_text(const fs::path& path, const std::string& text) {
+    std::error_code e;
+    fs::create_directories(path.parent_path(), e);
+    std::string error;
+    return write_whole(path, std::vector<uint8_t>(text.begin(), text.end()), error) == 0;
+}
+long long time_count(fs::file_time_type time) { return static_cast<long long>(time.time_since_epoch().count()); }
+std::string hex_of(size_t value) {
+    char text[32];
+    std::snprintf(text, sizeof text, "%016zx", value);
+    return text;
+}
+} // namespace
+
+const KitStore::Summary* KitStore::summary_of(const fs::path& path, bool read) {
     std::error_code e;
     const auto size = fs::file_size(path, e);
     const auto time = fs::last_write_time(path, e);
+    auto found = seen.find(path.string());
+    if (found != seen.end() && !found->second.summary.name.empty() && found->second.size == size && found->second.time == time)
+        return &found->second.summary;
+    if (!read) return nullptr;
+    summaries_dirty = true;
     auto& entry = seen[path.string()];
-    if (!entry.summary.name.empty() && entry.size == size && entry.time == time) return entry.summary;
     entry.size = size;
     entry.time = time;
     entry.summary = Summary {};
@@ -331,7 +388,7 @@ const KitStore::Summary& KitStore::summary_of(const fs::path& path) {
         int t = kit_of(*kit.project);
         if (t >= 0) count_pads(kit.project->tracks[size_t(t)], entry.summary.pads, entry.summary.banks);
     }
-    return entry.summary;
+    return &entry.summary;
 }
 
 namespace {
@@ -366,15 +423,66 @@ void find_kits(const fs::path& dir, int depth, std::vector<fs::path>& out) {
 }
 } // namespace
 
-Reply KitStore::list(const KitRoots& roots) {
+void KitStore::load_summaries(const KitRoots& roots) {
+    if (summaries_from == roots.card) return;
+    summaries_from = roots.card;
+    if (roots.card.empty()) return;
+    const std::string text = read_text(fs::path(roots.card) / summaries_file);
+    size_t at = 0;
+    std::string head;
+    if (!take(text, at, head) || head != "melodee-summaries-1") return;
+    while (at < text.size()) {
+        std::string path;
+        long long size = 0, time = 0, pads = 0, banks = 0, kit = 0;
+        Seen entry;
+        if (!(take(text, at, path) && take(text, at, size) && take(text, at, time) && take(text, at, entry.summary.name)
+              && take(text, at, entry.summary.error) && take(text, at, pads) && take(text, at, banks) && take(text, at, kit))) break;
+        entry.size = uintmax_t(size);
+        entry.time = fs::file_time_type(fs::file_time_type::duration(time));
+        entry.summary.pads = unsigned(pads);
+        entry.summary.banks = unsigned(banks);
+        entry.summary.kit = kit != 0;
+        seen.emplace(path, std::move(entry)); // one read this visit wins
+    }
+}
+
+void KitStore::save_summaries(const KitRoots& roots) {
+    if (roots.card.empty() || !summaries_dirty) return;
+    std::string text;
+    put(text, std::string("melodee-summaries-1"));
+    for (const auto& [path, entry] : seen) {
+        if (entry.summary.name.empty()) continue;
+        put(text, path);
+        put(text, (long long)entry.size);
+        put(text, time_count(entry.time));
+        put(text, entry.summary.name);
+        put(text, entry.summary.error);
+        put(text, (long long)entry.summary.pads);
+        put(text, (long long)entry.summary.banks);
+        put(text, (long long)(entry.summary.kit ? 1 : 0));
+    }
+    if (write_text(fs::path(roots.card) / summaries_file, text)) summaries_dirty = false;
+}
+
+Reply KitStore::list(const KitRoots& roots, int budget_ms) {
+    load_summaries(roots);
     std::string out = "{\"card\":" + std::string(roots.card.empty() ? "false" : "true") + ",\"kits\":[";
     bool first = true;
+    unsigned pending = 0;
+    // Reading a kit to count its pads takes the MPC a fifth of a second or more, over a hundred factory kits half a
+    // minute: a listing reads for `budget_ms` at most, then names the rest "pending" for the page to ask again.
+    const auto stop = std::chrono::steady_clock::now() + std::chrono::milliseconds(budget_ms < 0 ? 0 : budget_ms);
     auto add = [&](const fs::path& root, const fs::path& path, bool factory) {
-        const auto& s = summary_of(path);
+        const Summary* s = summary_of(path, budget_ms < 0 || std::chrono::steady_clock::now() < stop);
         auto id = id_of(roots, path, factory);
         auto folder = path.parent_path().lexically_relative(root).generic_string();
-        out += (first ? "" : ",") + summary_json(id, folder, extension_of(path).substr(1), factory, !factory && kit_editable(id),
-                                                 s.name, s.error, s.kit, s.pads, s.banks) + "}";
+        const auto format = extension_of(path).substr(1);
+        const bool editable = !factory && kit_editable(id);
+        if (s) out += (first ? "" : ",") + summary_json(id, folder, format, factory, editable, s->name, s->error, s->kit, s->pads, s->banks) + "}";
+        else {
+            ++pending;
+            out += (first ? "" : ",") + summary_json(id, folder, format, factory, editable, path.stem().string(), {}, true, 0, 0) + ",\"pending\":true}";
+        }
         first = false;
     };
     std::vector<fs::path> found;
@@ -390,7 +498,136 @@ Reply KitStore::list(const KitRoots& roots) {
             find_kits(fs::path(roots.card) / folder, 4, found);
             for (const auto& p : found) add(roots.card, p, false);
         }
-    return ok(out + "]}");
+    if (!pending) save_summaries(roots); // all read: kept for the next start
+    return ok(out + "],\"pending\":" + std::to_string(pending) + "}");
+}
+
+
+std::string KitStore::cache_key(const fs::path& path, uintmax_t size, fs::file_time_type time) {
+    return path.string() + "\n" + std::to_string(size) + "\n" + std::to_string(time_count(time));
+}
+
+void KitStore::forget(const fs::path& path) {
+    seen.erase(path.string());
+    parsed.erase(std::remove_if(parsed.begin(), parsed.end(), [&](const Parsed& p) { return p.path == path.string(); }), parsed.end());
+    summaries_dirty = true;
+}
+
+const KitStore::Parsed* KitStore::reading(const KitRoots& roots, const std::string& id, const fs::path& path, bool factory, Reply& failure) {
+    std::error_code e;
+    const auto size = fs::file_size(path, e);
+    const auto time = fs::last_write_time(path, e);
+    const auto key = cache_key(path, size, time);
+    for (auto i = parsed.begin(); i != parsed.end(); ++i)
+        if (i->key == key) {
+            std::rotate(i, i + 1, parsed.end()); // the newest last
+            return &parsed.back();
+        }
+    Parsed made;
+    made.key = key;
+    made.path = path.string();
+    // A factory kit read before, on any day: from the card's cache.
+    const fs::path record = roots.card.empty() ? fs::path()
+        : fs::path(roots.card) / cache_folder / (hex_of(std::hash<std::string> {}(key)) + ".kit");
+    bool found = false;
+    if (factory && !record.empty()) {
+        const std::string text = read_text(record);
+        size_t at = 0;
+        std::string head, stored;
+        long long count = 0;
+        found = take(text, at, head) && head == "melodee-kit-1" && take(text, at, stored) && stored == key && take(text, at, made.head)
+            && take(text, at, made.warnings) && take(text, at, made.banks) && take(text, at, count)
+            && count == static_cast<long long>(sampler_pads * pad_layers);
+        for (long long n = 0; found && n < count; ++n) {
+            long long status = 0;
+            Reply r;
+            found = take(text, at, status) && take(text, at, r.type) && take(text, at, r.body) && take(text, at, r.file);
+            r.status = int(status);
+            made.replies.push_back(std::move(r));
+        }
+    }
+    if (!found) {
+        made.head.clear();
+        made.warnings.clear();
+        made.banks.clear();
+        made.replies.clear();
+        Loaded kit;
+        auto error = read_kit(path, kit);
+        if (!error.empty()) {
+            failure = fail(422, error);
+            return nullptr;
+        }
+        const Project& project = *kit.project;
+        const int t = kit_of(project);
+        unsigned pads = 0, banks = 0;
+        if (t >= 0) count_pads(project.tracks[size_t(t)], pads, banks);
+        const bool editable = !factory && kit_editable(id);
+        const auto root = fs::path(factory ? roots.factory : roots.card);
+        made.head = summary_json(id, path.parent_path().lexically_relative(root).generic_string(), extension_of(path).substr(1), factory,
+                                 editable, path.stem().string(), {}, kit_track(project) >= 0, pads, banks);
+        unsigned missing = 0;
+        if (t >= 0) {
+            const Track& track = project.tracks[size_t(t)];
+            made.head += ",\"track\":" + json_text(track.name);
+            for (unsigned b = 0; b < sampler_banks; ++b) {
+                std::string list;
+                unsigned count = 0;
+                for (unsigned k = 0; k < 16; ++k) {
+                    const unsigned n = b * 16 + k;
+                    if (!track.pads[n].used()) continue;
+                    for (unsigned l = 0; l < pad_layers; ++l) {
+                        auto layer = track.pads[n].layer(l);
+                        const auto& ref = project.samples[layer.sample % sample_slots];
+                        if (layer.used() && !(ref.used() && present(ref))) ++missing;
+                    }
+                    list += (count++ ? "," : "") + pad_json(roots, project, track, n);
+                }
+                made.banks += (b ? "," : "") + std::string("{\"index\":") + std::to_string(b) + ",\"name\":\"" + char('A' + b)
+                    + "\",\"pads\":[" + list + "]}";
+            }
+        } else {
+            made.warnings += json_text("No kit track in this project");
+        }
+        if (missing)
+            made.warnings += (made.warnings.empty() ? "" : ",")
+                + json_text(std::to_string(missing) + (missing == 1 ? " sample is" : " samples are") + " missing");
+        if (t >= 0 && kit_track(project) < 0)
+            made.warnings += (made.warnings.empty() ? "" : ",") + json_text("No pads yet: Load kit needs at least one");
+        // What each pad layer's audio answers, so a press of a pad reads nothing.
+        made.replies.reserve(sampler_pads * pad_layers);
+        for (unsigned p = 0; p < sampler_pads; ++p)
+            for (unsigned n = 0; n < pad_layers; ++n) {
+                if (t < 0) {
+                    made.replies.push_back(fail(404, "No kit track in this project"));
+                    continue;
+                }
+                auto l = project.tracks[size_t(t)].pads[p].layer(n);
+                const auto& ref = project.samples[l.sample % sample_slots];
+                made.replies.push_back(!l.used() ? fail(404, "Nothing on this pad")
+                    : !ref.used() || !present(ref) ? fail(404, "The sample is missing")
+                    : !previewable(roots, ref) ? fail(415, "No preview for this sample in the browser")
+                    : Reply {200, file_type(fs::path(ref.path).filename().string()), {}, ref.path, {}});
+            }
+        if (factory && !record.empty()) {
+            std::string text;
+            put(text, std::string("melodee-kit-1"));
+            put(text, key);
+            put(text, made.head);
+            put(text, made.warnings);
+            put(text, made.banks);
+            put(text, static_cast<long long>(made.replies.size()));
+            for (const auto& r : made.replies) {
+                put(text, static_cast<long long>(r.status));
+                put(text, r.type);
+                put(text, r.body);
+                put(text, r.file);
+            }
+            write_text(record, text); // a card that will not take it: read again next time
+        }
+    }
+    parsed.push_back(std::move(made));
+    if (parsed.size() > parsed_kept) parsed.erase(parsed.begin());
+    return &parsed.back();
 }
 
 Reply KitStore::detail(const KitRoots& roots, const std::string& id) {
@@ -398,46 +635,14 @@ Reply KitStore::detail(const KitRoots& roots, const std::string& id) {
     bool factory = false;
     std::string error;
     if (!kit_place(roots, id, path, factory, error)) return fail(404, error);
-    Loaded kit;
-    error = read_kit(path, kit);
-    if (!error.empty()) return fail(422, error);
-    const Project& project = *kit.project;
-    const int t = kit_of(project);
-    unsigned pads = 0, banks = 0;
-    if (t >= 0) count_pads(project.tracks[size_t(t)], pads, banks);
-    const bool editable = !factory && kit_editable(id);
-    const auto root = fs::path(factory ? roots.factory : roots.card);
-    std::string out = summary_json(id, path.parent_path().lexically_relative(root).generic_string(), extension_of(path).substr(1), factory,
-                                   editable, path.stem().string(), {}, kit_track(project) >= 0, pads, banks);
-    std::string warnings;
-    unsigned missing = 0;
-    std::string banks_json;
-    if (t >= 0) {
-        const Track& track = project.tracks[size_t(t)];
-        out += ",\"track\":" + json_text(track.name);
-        for (unsigned b = 0; b < sampler_banks; ++b) {
-            std::string list;
-            unsigned count = 0;
-            for (unsigned k = 0; k < 16; ++k) {
-                const unsigned n = b * 16 + k;
-                if (!track.pads[n].used()) continue;
-                for (unsigned l = 0; l < pad_layers; ++l) {
-                    auto layer = track.pads[n].layer(l);
-                    if (layer.used() && !(project.samples[layer.sample % sample_slots].used() && present(project.samples[layer.sample % sample_slots]))) ++missing;
-                }
-                list += (count++ ? "," : "") + pad_json(roots, project, track, n);
-            }
-            banks_json += (b ? "," : "") + std::string("{\"index\":") + std::to_string(b) + ",\"name\":\"" + char('A' + b) + "\",\"pads\":[" + list + "]}";
-        }
-    } else {
-        warnings += json_text("No kit track in this project");
-    }
-    if (missing) warnings += (warnings.empty() ? "" : ",") + json_text(std::to_string(missing) + (missing == 1 ? " sample is" : " samples are") + " missing");
-    if (t >= 0 && kit_track(project) < 0) warnings += (warnings.empty() ? "" : ",") + json_text("No pads yet: Load kit needs at least one");
-    if (editable && open_on_mpc(roots, path)) warnings += (warnings.empty() ? "" : ",") + json_text("Open on the MPC: saving it there writes over changes made here");
-    out += ",\"open\":" + std::string(editable && open_on_mpc(roots, path) ? "true" : "false");
-    out += ",\"warnings\":[" + warnings + "],\"banks\":[" + banks_json + "]}";
-    return ok(out);
+    Reply failure;
+    const Parsed* p = reading(roots, id, path, factory, failure);
+    if (!p) return failure;
+    // Whether the MPC has it open changes while the file does not: asked each time.
+    const bool open = !factory && kit_editable(id) && open_on_mpc(roots, path);
+    std::string warnings = p->warnings;
+    if (open) warnings += (warnings.empty() ? "" : ",") + json_text("Open on the MPC: saving it there writes over changes made here");
+    return ok(p->head + ",\"open\":" + (open ? "true" : "false") + ",\"warnings\":[" + warnings + "],\"banks\":[" + p->banks + "]}");
 }
 
 namespace {
@@ -525,6 +730,8 @@ Reply KitStore::rename(const KitRoots& roots, const std::string& id, const std::
         fs::remove(path, e);
         for (const char* tail : project_folders) fs::rename(folder_of(path, tail), folder_of(target, tail), e);
     }
+    forget(path);
+    forget(target);
     return detail(roots, id_of(roots, target, false));
 }
 
@@ -539,7 +746,7 @@ Reply KitStore::remove(const KitRoots& roots, const std::string& id) {
     if (e) return fail(500, "Could not delete it");
     for (const char* tail : project_folders) fs::remove_all(folder_of(path, tail), e);
     ::sync();
-    seen.erase(path.string());
+    forget(path);
     return ok("{}");
 }
 
@@ -604,6 +811,7 @@ Reply KitStore::set_pad(const KitRoots& roots, const std::string& id, const std:
     }
     free_unplayed(project);
     if (int status = save_kit(path, kit, error)) return fail(status, error);
+    forget(path); // the card's clock may not tell the new file from the old
     return detail(roots, id);
 }
 
@@ -613,17 +821,14 @@ Reply KitStore::pad_audio(const KitRoots& roots, const std::string& id, int pad,
     std::string error;
     if (!kit_place(roots, id, path, factory, error)) return fail(404, error);
     if (pad < 0 || pad >= int(sampler_pads) || layer < 0 || layer >= int(pad_layers)) return fail(400, "No such pad");
-    Loaded kit;
-    error = read_kit(path, kit);
-    if (!error.empty()) return fail(422, error);
-    const int t = kit_of(*kit.project);
-    if (t < 0) return fail(404, "No kit track in this project");
-    auto l = kit.project->tracks[size_t(t)].pads[size_t(pad)].layer(unsigned(layer));
-    if (!l.used()) return fail(404, "Nothing on this pad");
-    const auto& ref = kit.project->samples[l.sample % sample_slots];
-    if (!ref.used() || !present(ref)) return fail(404, "The sample is missing");
-    if (!previewable(roots, ref)) return fail(415, "No preview for this sample in the browser");
-    return {200, file_type(fs::path(ref.path).filename().string()), {}, ref.path, {}};
+    // Read with the kit's details (reading()), so playing a pad reads nothing more.
+    Reply failure;
+    const Parsed* p = reading(roots, id, path, factory, failure);
+    if (!p) return failure;
+    const Reply& reply = p->replies[size_t(pad) * pad_layers + size_t(layer)];
+    std::error_code e;
+    if (reply.status == 200 && !fs::is_regular_file(reply.file, e)) return fail(404, "The sample is missing"); // gone since
+    return reply;
 }
 
 Reply KitStore::sample_audio(const KitRoots& roots, const std::string& sample) {
@@ -646,6 +851,35 @@ Reply KitStore::samples(const KitRoots& roots, const std::string& source, const 
     std::error_code e;
     if (!fs::is_directory(folder, e)) return fail(404, "Not a folder");
     return ok("{\"source\":" + json_text(source) + ",\"path\":" + json_text(rel) + ",\"entries\":" + folder_json(folder, source == "sd" && rel.empty()) + "}");
+}
+
+Reply KitStore::sounds(const KitRoots& roots, const std::string& source) {
+    if (source != "sd" && source != "factory") return fail(400, "No such place");
+    const std::string& root = source == "sd" ? roots.card : roots.factory_samples;
+    if (root.empty()) return fail(409, source == "sd" ? "No SD card in the MPC, or it is mounted on a computer" : "No factory samples here");
+    std::string out = "{\"source\":" + json_text(source) + ",\"files\":[";
+    size_t count = 0;
+    bool full = false;
+    std::error_code e;
+    // Links to folders are not followed and links to files are left out, so nothing outside the root is named.
+    fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, e), end;
+    for (; !e && it != end; it.increment(e)) {
+        const auto& path = it->path();
+        const auto name = path.filename().string();
+        std::error_code f;
+        const bool dir = it->is_directory(f), link = it->is_symlink(f);
+        // As card_place() refuses them: hidden names, and at the card's top autorun/ and sample-base/.
+        const bool skip = name.empty() || name[0] == '.' || name == "System Volume Information"
+            || (source == "sd" && it.depth() == 0 && !card_writable(name));
+        if (dir) {
+            if (skip || link || it.depth() + 1 >= sound_depth) it.disable_recursion_pending();
+            continue;
+        }
+        if (skip || link || !sampler_reads(path)) continue;
+        if (count == sound_limit) { full = true; break; }
+        out += (count++ ? "," : "") + json_text(path.lexically_relative(root).generic_string());
+    }
+    return ok(out + "],\"full\":" + (full ? "true" : "false") + "}");
 }
 
 } // namespace melodee::web

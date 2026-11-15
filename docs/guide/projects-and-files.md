@@ -145,18 +145,37 @@ on the card that hold a kit: `Melodee/Projects` and the stock app's
 `MPC-Sample/Projects`. Search the list, or show only **Factory**,
 **My kits** or **SD card**.
 
+- The page has three columns: the kits on the left, the open kit's pads
+  in the middle, and **Sounds** on the right. It fits the window; each
+  column scrolls on its own.
 - Click a kit to open it. Its pads are laid out as on the MPC, pad 13 at
   the top left, pad 1 at the bottom left. **A** to **H** switch banks.
-- Click a pad to hear it and see its sample, its layers and its level,
-  pan, tune and play type. A pad whose sample is missing has a red edge.
-  A pad that plays an instrument (an SFZ or a stock layered pad) shows
-  no preview.
+- Each pad shows its sample's waveform, with the pad's region bright and
+  the rest of the file dim. Press a pad to hear it: a line runs across the
+  waveform as it plays. The browser plays the pad's region at its level,
+  pan and tune, a **Note on** pad only while you hold it, and a pad in a
+  mute group stops the others in its group.
+- Play the pads from the computer's keyboard: **1** to **4** are the top
+  row (pads 13 to 16), then **Q** to **R**, **A** to **F**, and **Z** to
+  **V** the bottom row (pads 1 to 4). The keys go by their place on the
+  keyboard, so other layouts work too.
+- Click a pad to see its sample, its layers and its level, pan, tune and
+  play type. A pad whose sample is missing has a red edge. A pad that plays
+  an instrument (an SFZ or a stock layered pad) shows no waveform and no
+  preview.
 - **New kit** makes an empty kit. **Duplicate** copies any kit, a factory
   one too, into an editable kit of your own.
-- In a kit of your own, pick a pad, then a sample from the card or the
-  factory samples under **Assign a sample**, and press **Assign**. Change
-  its level, pan, tune or play type, or **Clear pad**. Each change is saved
-  to the card at once. **Rename** and **Delete** work on your own kits.
+- **Sounds**, on the right, browses the card or the factory samples by
+  folder. Type in **Search sounds** to find a sound anywhere under them:
+  every word you type must be in the file's name or its folders. Click a
+  sound to hear it.
+- Drag a sound onto a pad to put it there. In a kit of your own you can
+  also pick a pad and press **Assign** on a sound. Dropping a sound on a
+  factory kit, or another kit that is read only, asks for a name and makes
+  an editable copy with the sound on that pad.
+- In a kit of your own, change a pad's level, pan, tune or play type, or
+  **Clear pad**. Each change is saved to the card at once. **Rename** and
+  **Delete** work on your own kits.
 
 Your kits are saved in `Melodee/Projects/Kits` on the card. To play one,
 open the project list on the MPC (**SHIFT** + **Pad 16**, **B2**), open

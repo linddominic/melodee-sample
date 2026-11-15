@@ -24,6 +24,14 @@ int main(int argc, char** argv) {
     KitStore store;
     Reply r;
     if (action == "list") r = store.list(roots);
+    else if (action == "list-quick") r = store.list(roots, 0); // with no time to read: only what is known
+    else if (action == "list-twice") { // with no time to read: all pending; then read, by the same store as the server keeps it
+        Reply quick = store.list(roots, 0);
+        r = store.list(roots);
+        Reply after = store.list(roots, 0);
+        std::printf("%d\n{\"quick\":%s,\"full\":%s,\"after\":%s}\n", r.status, quick.body.c_str(), r.body.c_str(), after.body.c_str());
+        return 0;
+    }
     else if (action == "detail") r = store.detail(roots, q["id"]);
     else if (action == "create") r = store.create(roots, q["name"]);
     else if (action == "duplicate") r = store.duplicate(roots, q["id"], q["name"]);
@@ -32,7 +40,16 @@ int main(int argc, char** argv) {
     else if (action == "pad") { auto id = q["id"]; q.erase("id"); r = store.set_pad(roots, id, q); }
     else if (action == "audio") r = store.pad_audio(roots, q["id"], std::atoi(q["pad"].c_str()), std::atoi(q["layer"].c_str()));
     else if (action == "sample") r = store.sample_audio(roots, q["sample"]);
+    else if (action == "replay") { // a pad played, given another sample and played again, by one store as the server keeps it
+        const int pad = std::atoi(q["pad"].c_str());
+        Reply before = store.pad_audio(roots, q["id"], pad, 0);
+        Reply set = store.set_pad(roots, q["id"], {{"pad", q["pad"]}, {"sample", q["sample"]}});
+        Reply after = store.pad_audio(roots, q["id"], pad, 0);
+        std::printf("%d\n{\"before\":\"%s\",\"set\":%d,\"after\":\"%s\"}\n", after.status, before.file.c_str(), set.status, after.file.c_str());
+        return 0;
+    }
     else if (action == "samples") r = store.samples(roots, q["source"], q["path"]);
+    else if (action == "sounds") r = store.sounds(roots, q["source"]);
     else if (action == "names") { // the pure helpers
         std::printf("200\n{\"editable\":%s,\"file\":\"%s\"}\n", kit_editable(q["id"]) ? "true" : "false", kit_file_name(q["name"]).c_str());
         return 0;

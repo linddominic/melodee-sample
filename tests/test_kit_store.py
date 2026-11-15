@@ -121,6 +121,50 @@ class KitStoreTests(unittest.TestCase):
         self.assertEqual((stock["source"], stock["readOnly"]), ("sd", True))
         self.assertFalse(any("ProjectData" in k["id"] for k in kits))
 
+    def test_list_names_kits_before_reading_them(self):
+        body = self.ok("list-twice")
+        quick, full, after = body["quick"], body["full"], body["after"]
+        self.assertEqual(quick["pending"], len(quick["kits"]))
+        self.assertTrue(all(k["pending"] for k in quick["kits"]))
+        self.assertEqual([k["id"] for k in quick["kits"]], [k["id"] for k in full["kits"]])
+        self.assertIn("Boom Kit", [k["name"] for k in quick["kits"]])
+        self.assertEqual(full["pending"], 0)
+        # Read once, a listing with no time left still has every count.
+        self.assertEqual(after["pending"], 0)
+        self.assertEqual(after["kits"], full["kits"])
+
+    def test_factory_kit_read_once_kept_on_the_card(self):
+        first = self.ok("detail", id="factory:Kits/Boom Kit.xpj")
+        records = list((self.card / "Melodee/.cache/kits").glob("*.kit"))
+        self.assertEqual(len(records), 1)
+        # A factory kit never changes, so a later start answers from the card: the same details, and pad audio,
+        # even with the kit's sample folder gone (a fresh read would call the sample missing).
+        shutil.move(str(self.factory / "Kits/Boom Kit_[ProjectData]"), str(self.factory / "Kits/elsewhere"))
+        self.assertEqual(self.ok("detail", id="factory:Kits/Boom Kit.xpj"), first)
+        shutil.move(str(self.factory / "Kits/elsewhere"), str(self.factory / "Kits/Boom Kit_[ProjectData]"))
+        self.assertEqual(self.ok("audio", id="factory:Kits/Boom Kit.xpj", pad=0, layer=0)["type"], "audio/wav")
+        # A damaged record is read past: the kit is read again.
+        records[0].write_text("not a record")
+        self.assertEqual(self.ok("detail", id="factory:Kits/Boom Kit.xpj"), first)
+        # Card kits are not kept there: they can change.
+        self.ok("detail", id="sd:MPC-Sample/Projects/Boom Kit.xpj")
+        self.assertEqual(len(list((self.card / "Melodee/.cache/kits").glob("*.kit"))), 1)
+        self.assertFalse(any("cache" in k["id"] for k in self.ok("list")["kits"]))
+
+    def test_kit_summaries_kept_for_the_next_start(self):
+        quick = self.ok("list-quick")
+        self.assertEqual(quick["pending"], len(quick["kits"]))
+        full = self.ok("list")
+        self.assertTrue((self.card / "Melodee/.cache/kit-summaries").is_file())
+        again = self.ok("list-quick") # a new start: nothing read yet, all known
+        self.assertEqual(again["pending"], 0)
+        self.assertEqual(again["kits"], full["kits"])
+        # A kit changed since is read again.
+        made = self.ok("create", name="Later")
+        self.ok("pad", id=made["id"], pad=0, sample="sd:Samples/Drums/Hit 00.wav")
+        later = {k["id"]: k for k in self.ok("list")["kits"]}
+        self.assertEqual(later[made["id"]]["padCount"], 1)
+
     def test_factory_and_card_kit_share_one_model(self):
         factory = self.ok("detail", id="factory:Kits/Boom Kit.xpj")
         card = self.ok("detail", id="sd:MPC-Sample/Projects/Boom Kit.xpj")
@@ -187,6 +231,31 @@ class KitStoreTests(unittest.TestCase):
         self.assertEqual(self.ok("audio", id=dup["id"], pad=0, layer=0)["type"], "audio/wav")
         # Again: a free name, nothing written over.
         self.assertEqual(self.ok("duplicate", id="factory:Kits/Boom Kit.xpj")["id"], "sd:Melodee/Projects/Kits/Boom Kit copy 2.mldp")
+
+    def test_pad_audio_follows_an_edit(self):
+        # The server keeps each layer's file for the last kit played; a change to the kit is heard at once.
+        made = self.ok("create", name="Replay")
+        self.ok("pad", id=made["id"], pad=0, sample="sd:Samples/Drums/Hit 00.wav")
+        body = self.ok("replay", id=made["id"], pad=0, sample="sd:Samples/Drums/Hit 01.wav")
+        self.assertTrue(body["before"].endswith("/Hit 00.wav"), body)
+        self.assertEqual(body["set"], 200)
+        self.assertTrue(body["after"].endswith("/Hit 01.wav"), body)
+
+    def test_sounds_for_search(self):
+        (self.card / "autorun/boot.wav").write_bytes(wav(100))
+        files = self.ok("sounds", source="sd")["files"]
+        self.assertIn("Samples/Drums/Hit 00.wav", files)
+        self.assertEqual(len([f for f in files if f.startswith("Samples/Drums/")]), 70)
+        self.assertNotIn("Samples/Drums/notes.txt", files)
+        self.assertFalse(any(f.startswith("autorun/") for f in files))
+        (self.card / ".hidden").mkdir()
+        (self.card / ".hidden/Secret.wav").write_bytes(wav(100))
+        (self.card / "Samples/link.wav").symlink_to(self.factory_samples / "Drums/Hat.wav")
+        files = self.ok("sounds", source="sd")["files"]
+        self.assertFalse(any("Secret" in f or "link.wav" in f for f in files))
+        self.assertEqual(self.ok("sounds", source="factory")["files"], ["Drums/Hat.wav"])
+        self.assertEqual(self.run_store("sounds", source="elsewhere")[0], 400)
+        self.assertEqual(self.run_store("sounds", card="-", source="sd")[0], 409)
 
     def test_duplicate_custom_kit(self):
         made = self.ok("create", name="Mine")
