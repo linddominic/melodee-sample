@@ -86,6 +86,20 @@ previews are not unscrambled.
   sound on splice.com in a tab. Make kit says the credits first, then gets
   each (`/companion/splice/get`) and fills a new kit, or one's own kit's
   empty pads. 20 gets a session (`--credit-limit`).
+- **While it searches** the page shows each kind of pad as Splice answers
+  (`?stream=1`: a JSON line a search and a line a pad done, the draft last).
+- **Drafts** are kept in the browser (local storage, the last 20) and listed
+  as **Recent** under the box: one opens again at once, without a search.
+- **Credits**: no MCP tool tells one's balance. The companion shows the one
+  the Splice app saved (its `appState.json`, `user.credits`, and when: that
+  file can be months old), or, once something is got, the one Splice's
+  download answer gives if it says. The draft says what a kit leaves.
+- **Listen** (a pad one does not have): the sound's splice.com page in a
+  window of its own beside the page (520×720; used again; Stop or Esc closes
+  it), to press Play in. The optional **Melodee Listen** Chrome extension
+  (`tools/companion/listen-extension`, Load unpacked) marks the page so the
+  window opens small (460×250) and shows only the waveform and Play, and
+  presses Play; it acts only in that window.
 - **What is got** is kept in `~/Music/Melodee Splice/<label>/` and shown in
   the Splice source as **Got with Melodee**, beside the Splice app's packs.
 - **Covers**: made from a pack's name, or a `cover.jpg`, `.png` or `.webp`

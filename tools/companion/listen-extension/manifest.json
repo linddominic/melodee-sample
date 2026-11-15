@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Melodee Listen",
+  "version": "0.2",
+  "description": "An improvement for the Melodee Kits page: its Listen window shows only a Splice sound's waveform and Play button, and presses Play.",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://splice.com/sounds/sample/*"
+      ],
+      "js": [
+        "listen.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "here.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

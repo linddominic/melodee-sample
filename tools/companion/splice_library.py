@@ -126,11 +126,24 @@ class SpliceLibrary:
                 break
         return self._icon
 
+    @staticmethod
+    def credits():
+        """One's Splice credits as the Splice app last saved them (its appState.json, user.credits), and when: (n, unix
+        time) or (None, None). Only that number is read."""
+        state = Path.home() / "Library/Application Support/com.splice.Splice/appState.json"
+        try:
+            n = json.loads(state.read_text()).get("user", {}).get("credits")
+            return (int(n), state.stat().st_mtime) if isinstance(n, (int, float)) else (None, None)
+        except (OSError, ValueError):
+            return None, None
+
     def hello(self):
         packs = 0
         if self.available():
             packs = sum(1 for p in self.root.iterdir() if p.is_dir() and not p.name.startswith("."))
-        return {"splice": self.available(), "root": str(self.root), "packs": packs, "icon": self.icon() is not None}
+        credits, at = self.credits()
+        return {"splice": self.available(), "root": str(self.root), "packs": packs, "icon": self.icon() is not None,
+                "credits": credits, "creditsAt": at}
 
     def import_to_card(self, rel, mpc):
         """Copies a sound of the folder to Melodee/Samples/Splice/<Pack>/ on the card (see copy_to_card). The card id."""

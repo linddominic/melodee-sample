@@ -564,6 +564,42 @@ function planKit(shots) {
   return {picks: plan.map(take), key};
 }
 
+// Drafts of Describe a kit, kept in this browser (the last 20) to open again without asking Splice. Wrapped: storage
+// may be off (a private window), and then there are just none.
+const drafts = {
+  key: "melodee.kitDrafts",
+  all() { try { return JSON.parse(localStorage.getItem(this.key) || "[]"); } catch { return []; } },
+  save(draft) {
+    try {
+      const all = this.all().filter(d => d.text !== draft.text);
+      all.unshift({text: draft.text, at: Date.now(), draft});
+      localStorage.setItem(this.key, JSON.stringify(all.slice(0, 20)));
+    } catch { /* not kept */ }
+  },
+  drop(text) { try { localStorage.setItem(this.key, JSON.stringify(this.all().filter(d => d.text !== text))); } catch { /* kept */ } },
+};
+function ago(ms) {
+  const m = Math.round((Date.now() - ms) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+}
+
+// Listen: a Splice sound's own page in a small window of its own beside this one (splice.com may not be shown inside
+// another page), used again for the next Listen; Stop or Esc closes it. With the Melodee Listen extension
+// (tools/companion/listen-extension, which marks this page) the window shows only the waveform and Play, and plays;
+// without it, the whole page, to press Play on.
+let listening = null;
+function listenOn(link) {
+  const trimmed = !!document.documentElement.dataset.melodeeListen;
+  const w = trimmed ? 460 : 520, h = trimmed ? 250 : 720;
+  const left = Math.max(0, (window.screenX || 0) + window.outerWidth - w - 24), top = Math.max(0, (window.screenY || 0) + 80);
+  listening = window.open(link + (trimmed ? "#melodee-listen" : ""), "splice-listen", `popup,width=${w},height=${h},left=${left},top=${top}`);
+  if (listening) listening.focus();
+}
+function stopListening() {
+  if (listening && !listening.closed) listening.close();
+  listening = null;
+}
+
 // A pack's cover where there is no artwork: two of the page's colours and the pack's initials, the same for the same
 // name every time, so a pack is known again by its look.
 function packCover(name, size) {
@@ -995,6 +1031,7 @@ const kits = {
   // Everything that sounds, off (Stop, or Esc outside a text box).
   stopAll() {
     sound.stopAll();
+    stopListening(); // the Listen window too: closing it stops Splice's player
     this.playing = "";
     this.drawPadButtons();
     this.playhead();
@@ -1181,6 +1218,12 @@ const kits = {
     const ul = $("#picker-list"), li = document.createElement("li");
     li.className = "describe";
     const signed = this.companion && this.companion.signedIn;
+    if (signed && !document.documentElement.dataset.melodeeListen) { // the extension, offered once a draft has something to hear
+      const tip = document.createElement("small");
+      tip.className = "tip";
+      tip.innerHTML = "Tip: the <b>Melodee Listen</b> Chrome extension (tools/companion/listen-extension, Load unpacked) makes Listen a small player that plays at once.";
+      li.append(tip);
+    }
     const label = document.createElement("b");
     label.textContent = "Describe a kit";
     const why = document.createElement("small");
@@ -1202,6 +1245,35 @@ const kits = {
       row.append(go);
     }
     li.append(label, why, row);
+    if (signed && this.companion.credits != null) {
+      const credits = document.createElement("small");
+      credits.className = "credits";
+      credits.innerHTML = `<b>${this.companion.credits} Splice credits</b> ` + (this.companion.creditsFrom === "download" ? "(as Splice said with the last sound got)"
+        : `(as the Splice app last saved them, ${ago(this.companion.creditsAt * 1000)}: may be older than that)`);
+      li.append(credits);
+    }
+    const recent = signed ? drafts.all() : [];
+    if (recent.length) {
+      const list = document.createElement("span");
+      list.className = "recent";
+      list.append(Object.assign(document.createElement("small"), {textContent: "Recent"}));
+      for (const r of recent.slice(0, 8)) {
+        const chip = Object.assign(document.createElement("button"), {type: "button", className: "chip-btn", title: `Drafted ${ago(r.at)}: opens it again, no new search`});
+        chip.append(r.text, Object.assign(document.createElement("span"), {textContent: ago(r.at)}));
+        chip.addEventListener("click", () => {
+          this.remember();
+          this.lastDescribe = r.text;
+          this.draftOpen = true;
+          this.draft = r.draft;
+          this.render();
+        });
+        const x = Object.assign(document.createElement("span"), {className: "x", textContent: "✕", title: "Forget this draft"});
+        x.addEventListener("click", ev => { ev.stopPropagation(); drafts.drop(r.text); this.render(); });
+        chip.append(x);
+        list.append(chip);
+      }
+      li.append(list);
+    }
     ul.prepend(li);
   },
   async waitSignIn() {
@@ -1217,11 +1289,39 @@ const kits = {
     this.draftOpen = true;
     this.draft = null;
     this.render();
-    let draft;
-    try { draft = await this.get("/companion/splice/describe?" + this.q({text})); }
-    catch (e) { this.draft = {error: e.message}; this.render(); return; }
-    this.draft = draft;
-    if (this.draftOpen) this.render();
+    this.draft = {text, log: []};
+    this.render();
+    const show = () => { if (this.draftOpen && this.draft && this.draft.log) this.drawDraft(this.asked); };
+    try {
+      const r = await fetch("/companion/splice/describe?" + this.q({text, stream: 1}), {cache: "no-store"});
+      if (!r.ok || !r.body) throw new Error((await r.json().catch(() => ({}))).error || "Splice did not answer");
+      const read = r.body.getReader(), dec = new TextDecoder();
+      let rest = "";
+      for (;;) {
+        const {value, done} = await read.read();
+        if (done) break;
+        rest += dec.decode(value, {stream: true});
+        let cut;
+        while ((cut = rest.indexOf("\n")) >= 0) {
+          const line = rest.slice(0, cut).trim();
+          rest = rest.slice(cut + 1);
+          if (!line) continue;
+          const step = JSON.parse(line);
+          if (step.error) throw new Error(step.error);
+          if (step.draft) { this.draft = step.draft; drafts.save(step.draft); if (this.draftOpen) this.render(); return; }
+          const log = this.draft.log;
+          if (step.searching) {
+            const last = log.find(l => l.role === step.role);
+            if (last) { last.query = step.searching; last.tries++; } else log.push({role: step.role, query: step.searching, tries: 1});
+          } else if (step.found) {
+            const l = log.find(x => x.role === step.found);
+            if (l) { l.done = true; l.fits = step.fits; l.names = step.names; }
+          }
+          show();
+        }
+      }
+      throw new Error("The search stopped before the draft");
+    } catch (e) { this.draft = {error: e.message}; if (this.draftOpen) this.render(); }
   },
   drawDraft(asked) {
     const ul = $("#picker-list");
@@ -1229,19 +1329,44 @@ const kits = {
     this.rows = [];
     this.sel = -1;
     ul.innerHTML = "";
-    if (!this.draft) { this.say(ul, `Asking Splice for each pad of "${this.lastDescribe}"… (about twenty seconds)`); return; }
+    if (!this.draft) { this.say(ul, `Asking Splice for each pad of "${this.lastDescribe}"…`); return; }
     if (this.draft.error) { this.say(ul, this.draft.error); return; }
+    if (this.draft.log) { // still searching: each kind of pad, as Splice answers
+      const head = document.createElement("li");
+      head.className = "draft-head working";
+      const done = this.draft.log.filter(l => l.done).length;
+      head.append(Object.assign(document.createElement("b"), {textContent: this.draft.text}),
+                  Object.assign(document.createElement("small"), {textContent: `Asking Splice, a search per kind of pad · ${done} of 14 done`}));
+      ul.append(head);
+      for (const l of this.draft.log) {
+        const li = document.createElement("li");
+        li.className = "draft-log" + (l.done ? " done" : "");
+        const name = document.createElement("span");
+        name.className = "name";
+        name.append(Object.assign(document.createElement("b"), {textContent: (l.done ? "✓ " : "… ") + l.role}),
+                    Object.assign(document.createElement("small"), {textContent: l.done
+                      ? `${l.fits} fit${l.names && l.names.length ? ": " + l.names.map(n => n.replace(/\.[a-z0-9]{2,4}$/i, "")).join(", ") : ""}`
+                      : `searching “${l.query}”` + (l.tries > 1 ? ` (try ${l.tries})` : "")}));
+        li.append(name);
+        ul.append(li);
+      }
+      ul.lastElementChild.scrollIntoView({block: "nearest"});
+      return;
+    }
     const d = this.draft, pick = p => p.choices[0];
     const head = document.createElement("li");
     head.className = "draft-head";
     const cost = d.pads.filter(p => pick(p) && !pick(p).mine && !pick(p).kept).length;
+    const have = this.companion && this.companion.credits;
     head.innerHTML = "";
     const title = document.createElement("b");
     title.textContent = d.text;
     const about = document.createElement("small");
-    about.textContent = [`${d.pads.filter(pick).length} pads`, d.key ? `melodic in ${d.key}` : "", `${d.gets} of ${d.limit} gets this session`].filter(Boolean).join(" · ");
+    about.textContent = [`${d.pads.filter(pick).length} pads`, d.key ? `melodic in ${d.key}` : "",
+                         have != null ? `${have} credits, ${Math.max(0, have - cost)} after` : "", `${d.gets} of ${d.limit} gets this session`].filter(Boolean).join(" · ");
     const make = Object.assign(document.createElement("button"), {type: "button", className: "make",
       textContent: cost ? `Make kit · ${cost} credit${cost === 1 ? "" : "s"}` : "Make kit · free"});
+    if (cost && have != null) make.title = `${have} Splice credits now (as the Splice app last saw them): ${have - cost} left after`;
     make.addEventListener("click", () => this.makeDraft());
     head.append(title, about, make);
     ul.append(head);
@@ -1266,7 +1391,12 @@ const kits = {
         li.classList.add("playable");
         li.addEventListener("click", () => this.audition(url, true));
       }
-      if (c && c.link) li.append(Object.assign(document.createElement("a"), {className: "listen", href: c.link, target: "_blank", rel: "noopener", textContent: "↗", title: "Hear it on splice.com"}));
+      if (c && c.link && !c.mine) {
+        const listen = Object.assign(document.createElement("button"), {type: "button", className: "listen-btn", textContent: "Listen",
+          title: document.documentElement.dataset.melodeeListen ? "Hear it (Splice's player, in a small window)" : "Hear it on Splice's page, in a window beside this one"});
+        listen.addEventListener("click", ev => { ev.stopPropagation(); listenOn(c.link); });
+        li.append(listen);
+      }
       if (p.choices.length > 1) {
         const swap = Object.assign(document.createElement("button"), {type: "button", className: "swap", textContent: "Swap", title: `Another ${p.role.toLowerCase()}`});
         swap.addEventListener("click", ev => {
@@ -1293,7 +1423,9 @@ const kits = {
     });
     const cost = items => {
       const pay = items.filter(i => !i.c.mine && !i.c.kept).length, had = items.length - pay;
+      const have = this.companion && this.companion.credits;
       return pay ? `${pay} of them ${pay === 1 ? "is" : "are"} new to you: that is ${pay} Splice credit${pay === 1 ? "" : "s"}.` + (had ? ` The other ${had} you have already.` : "")
+          + (have != null ? `\nYou have ${have} (as the Splice app last saw them): ${have - pay} after.` : "")
         : "You have all of them already: no credits.";
     };
     const idOf = async item => {
@@ -1307,6 +1439,7 @@ const kits = {
       return data.id;
     };
     await this.fillKit(d.text.slice(0, 23), picks, d.key, idOf, cost);
+    try { this.companion = await this.get("/companion/hello", true); } catch { /* as it was */ }
     if (this.index) delete this.index.splice; // the sounds got show under Got with Melodee
   },
   // A Splice sound copied by the Mac companion to Melodee/Samples/Splice/<Pack> on the card (once): its card id.

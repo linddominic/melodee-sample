@@ -108,7 +108,8 @@ class Companion(http.server.BaseHTTPRequestHandler):
         lib = self.splice
         if url.path == "/companion/hello" and self.command in ("GET", "HEAD"):
             signed = self.mcp.signed_in() if self.mcp else False
-            return self.json_reply(200, {"companion": True, "signedIn": signed, **(lib.hello() if lib else {"splice": False})})
+            return self.json_reply(200, {"companion": True, "signedIn": signed, **(lib.hello() if lib else {"splice": False}),
+                                         **({"credits": self.kits.left, "creditsAt": None, "creditsFrom": "download"} if self.kits and self.kits.left is not None else {})})
         # Signing in to Splice: the browser goes to Splice and comes back here.
         if url.path == "/companion/splice/login" and self.command == "GET":
             try:
@@ -131,6 +132,26 @@ class Companion(http.server.BaseHTTPRequestHandler):
                     "window.opener&&window.opener.postMessage('splice-signed-in','*');setTimeout(()=>window.close(),800)" if ok else "")).encode()
             return self.reply(200 if ok else 400, "text/html; charset=utf-8", body)
         # Describe a kit: a search per pad, to a draft (no credits); then get, a sound at a time (asked first).
+        if url.path == "/companion/splice/describe" and self.command == "GET" and query.get("stream"):
+            # One JSON object a line, as each search is done (the page shows the work), the draft last.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            try:
+                for step in self.kits.steps(query.get("text", ""), self.mark):
+                    self.wfile.write((json.dumps(step) + "\n").encode())
+                    self.wfile.flush()
+            except PermissionError as e:
+                self.wfile.write((json.dumps({"error": str(e), "signedOut": True}) + "\n").encode())
+            except (OSError, ValueError) as e:
+                try:
+                    self.wfile.write((json.dumps({"error": str(e)}) + "\n").encode())
+                except OSError:
+                    pass # the page went away
+            self.close_connection = True
+            return None
         if url.path == "/companion/splice/describe" and self.command == "GET":
             try:
                 return self.json_reply(200, self.kits.draft(query.get("text", ""), self.mark))
@@ -151,7 +172,7 @@ class Companion(http.server.BaseHTTPRequestHandler):
                 return self.json_reply(403, {"error": str(e)})
             except (OSError, ValueError) as e:
                 return self.json_reply(502, {"error": str(e) or "Could not get it"})
-            return self.json_reply(200, {"id": card, "fresh": fresh, "gets": self.kits.spent, "limit": self.kits.limit})
+            return self.json_reply(200, {"id": card, "fresh": fresh, "gets": self.kits.spent, "limit": self.kits.limit, "left": self.kits.left})
         if url.path == "/companion/splice/logout" and self.command == "POST":
             if "X-Melodee" not in self.headers:
                 return self.json_reply(403, {"error": "Not from Melodee's page"})

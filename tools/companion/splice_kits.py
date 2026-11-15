@@ -76,13 +76,24 @@ class SpliceKits:
         self.mcp = mcp
         self.limit = limit          # gets a session may make: credits are money
         self.spent = 0
+        self.left = None            # credits left, when a download's answer said so (fresher than the Splice app's file)
         self.lock = threading.Lock()
 
     def draft(self, text, mark):
         """{"text", "pads": [{"pad", "role", "words", "choices": [sound...]}...]}: a pad's first choice is its pick.
         `mark(sounds)` marks those one has already (free)."""
+        for step in self.steps(text, mark):
+            if "draft" in step:
+                return step["draft"]
+
+    def steps(self, text, mark):
+        """The draft as it is made: {"searching": query, "role"} before each search, {"found": role, "fits", "names"}
+        after a kind of pad is done, and {"draft": ...} at the end, so the page shows the work as it goes."""
         text = " ".join(text.split())[:120]
         found = {}
+        roles = {}
+        for role, words in PADS:
+            roles.setdefault(words, role)
         for _, words in PADS:
             if words in found:
                 continue
@@ -90,6 +101,7 @@ class SpliceKits:
             # until three sounds that are what the pad wants are found. Else the best there was.
             good, seen, first = [], set(), []
             for query in ("%s %s" % (words, text), "%s %s" % (text, words), words):
+                yield {"searching": query, "role": roles[words]}
                 answer = [s for s in rows(self.mcp.call("describe_a_sound", {"query": query, "type": "oneshot"})) if s["uuid"]]
                 first = first or answer
                 good += [s for s in answer if s["uuid"] not in seen and fits(words, s)]
@@ -98,6 +110,7 @@ class SpliceKits:
                     break
             found[words] = good or first
             mark(found[words])
+            yield {"found": roles[words], "fits": len(good), "names": [s["name"] for s in found[words][:3]]}
         keys = Counter(s["key"] for role, words in PADS if role in MELODIC for s in found[words][:4] if s["key"])
         key = keys.most_common(1)[0][0] if keys else ""
         used, pads = set(), []
@@ -108,7 +121,7 @@ class SpliceKits:
             if choices:
                 used.add(choices[0]["uuid"])
             pads.append({"pad": n + 1, "role": role, "words": words, "choices": choices[:6]})
-        return {"text": text, "key": key, "pads": pads, "gets": self.spent, "limit": self.limit}
+        yield {"draft": {"text": text, "key": key, "pads": pads, "gets": self.spent, "limit": self.limit, "left": self.left}}
 
     def local(self, name, label):
         path = DOWNLOADS / safe(label) / safe(shortened(name, 120))
@@ -131,6 +144,9 @@ class SpliceKits:
             with self.lock:
                 self.spent -= 1
             raise
+        left = re.search(r"(\d[\d,]*)\s+credits?\s+(?:remaining|left)|(?:remaining|left)[^\d\n]{0,20}(\d[\d,]*)\s+credits?", text, re.I)
+        if left:
+            self.left = int((left.group(1) or left.group(2)).replace(",", ""))
         url = re.search(r"https://[^\s)\]>\"'*`]+", text)  # plain, or inside Markdown's [name](url)
         if not url:
             raise OSError(text.strip()[:300] or "Splice gave no file")
