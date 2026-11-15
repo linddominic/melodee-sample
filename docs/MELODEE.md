@@ -2220,7 +2220,11 @@ Melodee stops the stock web server
 (`az0x-webserver`, Akai's updater) as the page starts and takes port 80; the
 base's `restore-stock.sh` starts it again whenever Melodee stops, a crash
 too. If port 80 is still held, the page is on port 8080.
-It has four tabs: **Device**, **Files**, **Quickstart** and **Manual**.
+It has five tabs: **Device**, **Files**, **Kits**, **Quickstart** and
+**Manual**. **Kits** (`web/kit_store.*`, [KIT_MANAGER.md](KIT_MANAGER.md))
+reads the factory kits and the card's kits with the project readers into
+one model, previews their samples as files, and makes and edits kits in
+`Melodee/Projects/Kits` only (`/api/kits...`); Load kit loads them.
 **Files** (`web/card_files.*`) lists the card's folders (hidden files and
 System Volume Information left out), plays audio files in the browser,
 downloads any file, uploads files by button or drop into the folder open

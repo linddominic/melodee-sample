@@ -217,10 +217,11 @@ def chapters():
 
 def shell(title, active, main, description=""):
     page = (STATIC / "shell.html").read_text()
-    current = {k: ' aria-current="page"' if k == active else "" for k in ("device", "files", "quickstart", "manual")}
+    current = {k: ' aria-current="page"' if k == active else "" for k in ("device", "files", "kits", "quickstart", "manual")}
     return (page.replace("{{title}}", html.escape(title))
                 .replace("{{device}}", current["device"])
                 .replace("{{files}}", current["files"])
+                .replace("{{kits}}", current["kits"])
                 .replace("{{quickstart}}", current["quickstart"])
                 .replace("{{manual}}", current["manual"])
                 .replace("{{main}}", main))
@@ -310,6 +311,7 @@ def main():
     files, images = {}, set()
 
     files["/files"] = shell("Files · Melodee", "files", (STATIC / "files.html").read_text())
+    files["/kits"] = shell("Kits · Melodee", "kits", (STATIC / "kits.html").read_text())
     files["/app.css"] = (STATIC / "app.css").read_text()
     files["/app.js"] = (STATIC / "app.js").read_text()
 

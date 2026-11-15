@@ -422,6 +422,331 @@ const files = {
   },
 };
 
+// ---- Kits: the factory kits and the card's, and kits of one's own (docs/KIT_MANAGER.md) ----
+
+const kits = {
+  here: !!$("#kits"),
+  list: [], show: "all", kit: null, bank: 0, pad: null, source: "sd", folder: "", playing: "",
+  async get(url) {
+    const r = await fetch(url, {cache: "no-store"});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "Failed");
+    return data;
+  },
+  async post(url) {
+    sending = true;
+    try {
+      const r = await fetch(url, {method: "POST", headers: {"X-Melodee": "1"}, body: ""});
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "Failed");
+      return data;
+    } finally { sending = false; }
+  },
+  q(params) { return Object.entries(params).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&"); },
+  mine(k) { return !k.readOnly; },
+  async load() {
+    const ul = $("#kit-list");
+    try { this.list = (await this.get("/api/kits")).kits; } catch (e) { ul.innerHTML = ""; this.say(ul, e.message); return; }
+    this.draw();
+  },
+  say(ul, words) { const li = document.createElement("li"); li.className = "empty"; li.textContent = words; ul.append(li); },
+  draw() {
+    const ul = $("#kit-list"), find = $("#kit-search").value.trim().toLowerCase();
+    ul.innerHTML = "";
+    const shown = this.list.filter(k => (this.show === "all" || (this.show === "factory" && k.source === "factory")
+      || (this.show === "mine" && this.mine(k)) || (this.show === "sd" && k.source === "sd"))
+      && (!find || k.name.toLowerCase().includes(find) || k.folder.toLowerCase().includes(find)));
+    if (!shown.length) { this.say(ul, this.list.length ? "No kits match" : "No kits found"); return; }
+    shown.forEach(k => {
+      const li = document.createElement("li");
+      li.className = "kit-row" + (k.kit ? "" : " off") + (this.kit && this.kit.id === k.id ? " here" : "");
+      li.style.setProperty("--stripe", k.source === "factory" ? "var(--lilac)" : this.mine(k) ? "var(--coral)" : "var(--amber)");
+      li.tabIndex = 0;
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = k.name;
+      const where = document.createElement("small");
+      where.textContent = k.error ? k.error : (k.source === "factory" ? "Factory / " : "SD / ") + k.folder;
+      name.append(where);
+      const meta = document.createElement("span");
+      meta.className = "why";
+      meta.textContent = k.error ? "" : k.kit ? k.padCount + (k.padCount === 1 ? " pad" : " pads") : k.padCount ? "" : "No kit";
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = k.source === "factory" ? "FACTORY" : this.mine(k) ? "MINE" : k.format.toUpperCase();
+      li.append(name, meta, chip);
+      const open = () => this.open(k.id);
+      li.addEventListener("click", open);
+      li.addEventListener("keydown", e => { if (e.key === "Enter") open(); });
+      ul.append(li);
+    });
+  },
+  async open(id, keepPad) {
+    try { this.kit = await this.get("/api/kits/kit?" + this.q({id})); } catch (e) { alert(e.message); return; }
+    if (!keepPad) { this.pad = null; this.bank = this.kit.banks.findIndex(b => b.pads.length); if (this.bank < 0) this.bank = 0; }
+    location.hash = encodeURIComponent(id);
+    this.drawKit();
+    this.draw();
+  },
+  drawKit() {
+    const k = this.kit;
+    $("#kit-none").hidden = !!k;
+    $("#kit-open").hidden = !k;
+    if (!k) return;
+    $("#kit-source").textContent = k.source === "factory" ? "Factory kit · read only" : k.readOnly ? "SD card · read only" : "My kit";
+    $("#kit-source").style.setProperty("--tone", k.source === "factory" ? "var(--lilac)" : k.readOnly ? "var(--amber)" : "var(--coral)");
+    $("#kit-name").textContent = k.name;
+    $("#kit-sub").textContent = `${k.padCount} ${k.padCount === 1 ? "pad" : "pads"} in ${k.bankCount} ${k.bankCount === 1 ? "bank" : "banks"}`
+      + (k.track ? ` · track "${k.track}"` : "") + ` · ${k.folder}`;
+    $("#kit-rename").hidden = $("#kit-delete").hidden = k.readOnly;
+    const warn = $("#kit-warn");
+    warn.innerHTML = "";
+    (k.warnings || []).forEach(w => { const li = document.createElement("li"); li.textContent = w; warn.append(li); });
+    if (k.readOnly) { const li = document.createElement("li"); li.className = "note"; li.textContent = "Read only. Duplicate it to make an editable copy on the card."; warn.append(li); }
+    const banks = $("#banks");
+    banks.innerHTML = "";
+    k.banks.forEach((b, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "seg" + (b.pads.length ? " full" : "");
+      btn.textContent = b.name;
+      btn.setAttribute("aria-pressed", i === this.bank);
+      btn.addEventListener("click", () => { this.bank = i; this.pad = null; this.drawKit(); });
+      banks.append(btn);
+    });
+    // The MPC's pads: 13-16 on top, 1-4 at the bottom.
+    const grid = $("#pad-grid");
+    grid.innerHTML = "";
+    const bank = k.banks[this.bank] || {pads: []};
+    for (const row of [12, 8, 4, 0]) for (let c = 0; c < 4; c++) {
+      const n = this.bank * 16 + row + c, pad = bank.pads.find(p => p.index === n);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pad" + (pad ? " used" : "") + (this.pad === n ? " on" : "") + (pad && pad.layers.some(l => l.missing) ? " missing" : "");
+      b.style.setProperty("--tone", tones[(row / 4 + c) % 4]);
+      const label = document.createElement("small");
+      label.textContent = String.fromCharCode(65 + this.bank) + String(row + c + 1).padStart(2, "0");
+      const name = document.createElement("span");
+      name.textContent = pad ? pad.name || "(instrument)" : "";
+      b.append(label, name);
+      b.addEventListener("click", () => { this.pad = n; this.drawKit(); if (pad) this.play(n, 0, pad.layers[0]); });
+      grid.append(b);
+    }
+    this.drawPad();
+  },
+  padOf(n) { for (const b of this.kit.banks) for (const p of b.pads) if (p.index === n) return p; return null; },
+  drawPad() {
+    const panel = $("#pad-panel"), k = this.kit;
+    panel.hidden = this.pad === null;
+    if (this.pad === null) return;
+    const pad = this.padOf(this.pad);
+    $("#pad-label").textContent = "Pad " + String.fromCharCode(65 + Math.floor(this.pad / 16)) + String(this.pad % 16 + 1).padStart(2, "0");
+    $("#pad-name").textContent = pad ? pad.name || "(instrument)" : "Empty";
+    $("#pad-clear").hidden = k.readOnly || !pad;
+    const layers = $("#pad-layers");
+    layers.innerHTML = "";
+    (pad ? pad.layers : []).forEach((l, i) => {
+      const li = document.createElement("li");
+      li.style.setProperty("--stripe", l.missing ? "var(--rec)" : "var(--mint)");
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = (pad.layers.length > 1 ? `Layer ${l.index + 1}: ` : "") + (l.sampleName || "(unnamed)");
+      const path = document.createElement("small");
+      path.textContent = l.samplePath;
+      name.append(path);
+      const why = document.createElement("span");
+      why.className = "why";
+      why.textContent = l.missing ? "Missing" : l.preview ? "" : l.kind === "instrument" ? "Instrument: no preview" : "No preview";
+      li.append(name, why);
+      if (l.preview) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "act";
+        b.title = "Play";
+        b.innerHTML = glyphs[this.playing === this.padUrl(this.pad, l.index) ? "stop" : "play"];
+        b.addEventListener("click", () => this.play(this.pad, l.index, l, true));
+        li.append(b);
+      }
+      layers.append(li);
+    });
+    if (!pad) this.say(layers, k.readOnly ? "No sample on this pad" : "No sample yet: pick one below");
+    const params = $("#pad-params");
+    params.innerHTML = "";
+    if (pad) {
+      const field = (key, label, value, min, max) => {
+        const wrap = document.createElement("label");
+        wrap.className = "param";
+        const t = document.createElement("span");
+        t.textContent = label;
+        const input = document.createElement("input");
+        input.type = "number"; input.min = min; input.max = max; input.value = value; input.disabled = k.readOnly;
+        input.addEventListener("change", () => this.edit({[key]: input.value}));
+        wrap.append(t, input);
+        params.append(wrap);
+      };
+      field("level", "Level", pad.level, 0, 127);
+      field("pan", "Pan", pad.pan, -50, 50);
+      field("pitch", "Tune", pad.pitch, -48, 48);
+      field("fine", "Fine", pad.fine, -99, 99);
+      const wrap = document.createElement("label");
+      wrap.className = "param";
+      const t = document.createElement("span");
+      t.textContent = "Play";
+      const sel = document.createElement("select");
+      sel.disabled = k.readOnly;
+      [["oneshot", "One shot"], ["gate", "Note on"]].forEach(([v, w]) => { const o = document.createElement("option"); o.value = v; o.textContent = w; sel.append(o); });
+      sel.value = pad.play;
+      sel.addEventListener("change", () => this.edit({play: sel.value}));
+      wrap.append(t, sel);
+      params.append(wrap);
+      const info = document.createElement("p");
+      info.className = "param-info";
+      info.textContent = `Region ${pad.start}–${pad.end || "end"} · mute group ${pad.group || "off"} · filter ${pad.filter}`
+        + (pad.layers.length > 1 ? ` · layers ${pad.layerPlay.toLowerCase()}` : "") + (pad.reverse ? " · reversed" : "");
+      params.append(info);
+    }
+    $("#pad-say").textContent = "";
+    $("#picker").hidden = k.readOnly;
+    if (!k.readOnly) this.browse(this.folder);
+  },
+  padUrl(n, layer) { return "/api/kits/audio?" + this.q({id: this.kit.id, pad: n, layer}); },
+  play(n, layer, l, toggle) {
+    const url = l && l.preview ? this.padUrl(n, layer) : null;
+    this.audition(url, toggle);
+    this.drawPadButtons();
+  },
+  audition(url, toggle) {
+    const player = $("#kit-player");
+    if (!url || (toggle && this.playing === url)) { player.pause(); this.playing = ""; return; }
+    player.src = url;
+    this.playing = url;
+    player.play().catch(() => { this.playing = ""; $("#pad-say").textContent = "The browser cannot play this file"; $("#pad-say").className = "say bad"; });
+  },
+  drawPadButtons() {
+    $$("#pad-layers .act").forEach((b, i) => { const pad = this.padOf(this.pad); if (pad) b.innerHTML = glyphs[this.playing === this.padUrl(this.pad, pad.layers.filter(l => l.preview)[i]?.index) ? "stop" : "play"]; });
+    $$("#picker-list .act.play").forEach(b => { b.innerHTML = glyphs[this.playing === b.dataset.url ? "stop" : "play"]; });
+  },
+  async edit(values) {
+    const say = $("#pad-say");
+    say.className = "say"; say.textContent = "Saving…";
+    try {
+      this.kit = await this.post("/api/kits/pad?" + this.q({id: this.kit.id, pad: this.pad, ...values}));
+      const keep = this.folder;
+      this.drawKit();
+      this.folder = keep;
+      $("#pad-say").className = "say ok";
+      $("#pad-say").textContent = "Saved to the card";
+      this.refreshRow();
+    } catch (e) { say.className = "say bad"; say.textContent = e.message; }
+  },
+  refreshRow() {
+    const i = this.list.findIndex(x => x.id === this.kit.id);
+    const row = {...this.kit};
+    delete row.banks; delete row.warnings;
+    if (i >= 0) this.list[i] = row; else this.list.push(row);
+    this.draw();
+  },
+  async browse(folder) {
+    this.folder = folder;
+    const ul = $("#picker-list"), nav = $("#picker-crumbs");
+    let data;
+    try { data = await this.get("/api/kits/samples?" + this.q({source: this.source, path: folder})); }
+    catch (e) { ul.innerHTML = ""; nav.innerHTML = ""; this.say(ul, e.message); return; }
+    nav.innerHTML = "";
+    const parts = folder ? folder.split("/") : [];
+    const crumb = (label, to) => { const a = document.createElement("a"); a.href = "#"; a.textContent = label; a.addEventListener("click", e => { e.preventDefault(); this.browse(to); }); return a; };
+    nav.append(crumb(this.source === "sd" ? "SD card" : "Factory samples", ""));
+    parts.forEach((p, i) => { const s = document.createElement("span"); s.className = "sep"; s.textContent = "/"; nav.append(s, crumb(p, parts.slice(0, i + 1).join("/"))); });
+    ul.innerHTML = "";
+    const shown = data.entries.filter(e => e.dir || audioKinds.test(e.name));
+    if (!shown.length) { this.say(ul, "No samples here"); return; }
+    shown.forEach(e => {
+      const rel = folder ? folder + "/" + e.name : e.name;
+      const li = document.createElement("li");
+      li.className = "entry " + (e.dir ? "dir" : "audio");
+      li.style.setProperty("--stripe", e.dir ? "var(--amber)" : "var(--mint)");
+      li.innerHTML = glyphs[e.dir ? "dir" : "audio"];
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = e.name;
+      li.append(name);
+      if (e.dir) li.addEventListener("click", () => this.browse(rel));
+      else {
+        const id = this.source + ":" + rel, url = "/api/kits/sample?" + this.q({sample: id});
+        const play = document.createElement("button");
+        play.type = "button"; play.className = "act play"; play.title = "Play"; play.dataset.url = url;
+        play.innerHTML = glyphs[this.playing === url ? "stop" : "play"];
+        play.addEventListener("click", ev => { ev.stopPropagation(); this.audition(url, true); this.drawPadButtons(); });
+        const use = document.createElement("button");
+        use.type = "button"; use.className = "use"; use.textContent = "Assign";
+        use.addEventListener("click", ev => { ev.stopPropagation(); this.edit({sample: id}); });
+        li.append(play, use);
+        li.addEventListener("click", () => { this.audition(url, true); this.drawPadButtons(); });
+      }
+      ul.append(li);
+    });
+  },
+  async make() {
+    const name = prompt("Name the new kit (at most 23 characters)");
+    if (!name) return;
+    try { this.kit = await this.post("/api/kits/new?" + this.q({name: name.trim()})); this.after(); } catch (e) { alert(e.message); }
+  },
+  async duplicate() {
+    const name = prompt("Name the copy", (this.kit.name + " copy").slice(0, 23));
+    if (!name) return;
+    try { this.kit = await this.post("/api/kits/duplicate?" + this.q({id: this.kit.id, name: name.trim()})); this.after(); } catch (e) { alert(e.message); }
+  },
+  async rename() {
+    const name = prompt("Rename the kit", this.kit.name);
+    if (!name || name.trim() === this.kit.name) return;
+    const old = this.kit.id;
+    try {
+      this.kit = await this.post("/api/kits/rename?" + this.q({id: old, name: name.trim()}));
+      this.list = this.list.filter(x => x.id !== old);
+      this.after();
+    } catch (e) { alert(e.message); }
+  },
+  async remove() {
+    if (!confirm(`Delete the kit "${this.kit.name}" from the card? This cannot be undone.`)) return;
+    try {
+      await this.post("/api/kits/delete?" + this.q({id: this.kit.id}));
+      this.list = this.list.filter(x => x.id !== this.kit.id);
+      this.kit = null;
+      history.replaceState(null, "", location.pathname);
+      this.drawKit();
+      this.draw();
+    } catch (e) { alert(e.message); }
+  },
+  after() {
+    this.pad = null;
+    this.bank = Math.max(0, this.kit.banks.findIndex(b => b.pads.length));
+    location.hash = encodeURIComponent(this.kit.id);
+    this.refreshRow();
+    this.drawKit();
+  },
+  start() {
+    if (!this.here) return;
+    $("#kit-search").addEventListener("input", () => this.draw());
+    $$("#kits .kit-side .seg").forEach(b => b.addEventListener("click", () => {
+      this.show = b.dataset.show;
+      $$("#kits .kit-side .seg").forEach(x => x.setAttribute("aria-pressed", x === b));
+      this.draw();
+    }));
+    $$("#picker .seg").forEach(b => b.addEventListener("click", () => {
+      this.source = b.dataset.source;
+      $$("#picker .seg").forEach(x => x.setAttribute("aria-pressed", x === b));
+      this.browse("");
+    }));
+    $("#kit-new").addEventListener("click", () => this.make());
+    $("#kit-dup").addEventListener("click", () => this.duplicate());
+    $("#kit-rename").addEventListener("click", () => this.rename());
+    $("#kit-delete").addEventListener("click", () => this.remove());
+    $("#pad-clear").addEventListener("click", () => this.edit({clear: 1}));
+    $("#kit-player").addEventListener("ended", () => { this.playing = ""; this.drawPadButtons(); });
+    this.load().then(() => { const id = decodeURIComponent(location.hash.slice(1)); if (id) this.open(id); });
+  },
+};
+
 // ---- The docs ----
 
 function docs() {
@@ -443,7 +768,7 @@ function docs() {
 }
 
 docs();
-status().then(() => { plugins(); files.start(); });
+status().then(() => { plugins(); files.start(); kits.start(); });
 setInterval(() => {
   if (sending || asking) return;
   asking = true;

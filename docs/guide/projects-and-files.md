@@ -118,7 +118,7 @@ the drive, Melodee asks whether to eject anyway.
 
 While Melodee runs, connect the MPC to a computer with USB-C and open
 **http://melodee.local** (or **http://192.168.155.1**) in a browser. It has
-four tabs:
+five tabs:
 
 - **Device**: the version running, the card's free space and the plug-ins
   in `Melodee/Plugins`. Drop a Melodee release zip on **Update** and press
@@ -130,11 +130,47 @@ four tabs:
   list), make folders and delete files or folders. The browser asks before
   it deletes. An upload never replaces a file of the same name.
   `autorun` and `sample-base` are not shown.
+- **Kits**: the factory kits and the kits on the card. See
+  [Kits in the browser](#kits-in-the-browser).
 - **Quickstart** and **Manual**: the quickstart and this guide. They work
   without an internet connection.
 
 Uploads wait while the card is on a computer with SD card access. When
 Melodee stops, the MPC's own web page comes back.
+
+## Kits in the browser
+
+The **Kits** tab lists the MPC's factory kits (read only) and the projects
+on the card that hold a kit: `Melodee/Projects` and the stock app's
+`MPC-Sample/Projects`. Search the list, or show only **Factory**,
+**My kits** or **SD card**.
+
+- Click a kit to open it. Its pads are laid out as on the MPC, pad 13 at
+  the top left, pad 1 at the bottom left. **A** to **H** switch banks.
+- Click a pad to hear it and see its sample, its layers and its level,
+  pan, tune and play type. A pad whose sample is missing has a red edge.
+  A pad that plays an instrument (an SFZ or a stock layered pad) shows
+  no preview.
+- **New kit** makes an empty kit. **Duplicate** copies any kit, a factory
+  one too, into an editable kit of your own.
+- In a kit of your own, pick a pad, then a sample from the card or the
+  factory samples under **Assign a sample**, and press **Assign**. Change
+  its level, pan, tune or play type, or **Clear pad**. Each change is saved
+  to the card at once. **Rename** and **Delete** work on your own kits.
+
+Your kits are saved in `Melodee/Projects/Kits` on the card. To play one,
+open the project list on the MPC (**SHIFT** + **Pad 16**, **B2**), open
+the **Kits** folder, push the encoder on the kit and pick **Load kit**.
+Its pads load onto the selected track. A kit needs at least one pad with
+a sample before Load kit takes it.
+
+A duplicated factory kit plays the factory samples from the MPC's
+internal drive, where they are. Factory kits, the stock app's projects and
+your other Melodee projects are never changed from the browser.
+
+If you edit a kit in the browser while it is the project open on the MPC,
+saving that project on the MPC writes over the browser's changes. The
+Kits tab warns you when this can happen.
 
 ## Update Melodee
 

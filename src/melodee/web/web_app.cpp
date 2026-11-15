@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <vector>
@@ -119,6 +120,7 @@ Reply WebApp::handle(const Request& request, const Body& body) {
     if (request.method == "POST" && request.path == "/upload") return upload_file(request, body);
     if (request.method == "POST" && request.path == "/mkdir") return make_folder(request);
     if (request.method == "POST" && request.path == "/delete") return delete_entry(request);
+    if (request.path.rfind("/api/kits", 0) == 0) return kit_request(request);
     if (get)
         if (auto file = bundled(request.path)) return {200, file.type, std::string(file.data, file.size)};
     if (get && request.path == "/favicon.ico") return {204, "image/x-icon", ""}; // the page names its own icon
@@ -316,6 +318,34 @@ Reply WebApp::delete_entry(const Request& request) {
     ::sync();
     files_changed.store(true);
     return {200, "application/json; charset=utf-8", "{}"};
+}
+
+// ---- Kits: the factory kits and the card's, and kits of one's own (web/kit_store.h) ----
+
+Reply WebApp::kit_request(const Request& request) {
+    const KitRoots roots = kit_roots(current().card);
+    const bool get = request.method == "GET" || request.method == "HEAD", post = request.method == "POST";
+    const std::string& path = request.path;
+    const std::string id = query_of(request, "id");
+    auto number = [&](const char* key) { return std::atoi(query_of(request, key).c_str()); };
+    if (get && path == "/api/kits") return kits.list(roots);
+    if (get && path == "/api/kits/kit") return kits.detail(roots, id);
+    if (get && path == "/api/kits/audio") return kits.pad_audio(roots, id, number("pad"), number("layer"));
+    if (get && path == "/api/kits/sample") return kits.sample_audio(roots, query_of(request, "sample"));
+    if (get && path == "/api/kits/samples") return kits.samples(roots, query_of(request, "source"), query_of(request, "path"));
+    if (!post) return fail(404, "Not found");
+    Reply reply;
+    if (path == "/api/kits/new") reply = kits.create(roots, query_of(request, "name"));
+    else if (path == "/api/kits/duplicate") reply = kits.duplicate(roots, id, query_of(request, "name"));
+    else if (path == "/api/kits/rename") reply = kits.rename(roots, id, query_of(request, "name"));
+    else if (path == "/api/kits/delete") reply = kits.remove(roots, id);
+    else if (path == "/api/kits/pad") {
+        auto values = request.query;
+        values.erase("id");
+        reply = kits.set_pad(roots, id, values);
+    } else return fail(404, "Not found");
+    if (reply.status == 200) files_changed.store(true); // the MPC's project list looks again: the kit is there to load
+    return reply;
 }
 
 } // namespace melodee::web

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 #pragma once
+#include "melodee/web/kit_store.h"
 #include "melodee/web/mdns.h"
 #include "melodee/web/web_server.h"
 #include <atomic>
@@ -24,6 +25,10 @@
 //   the picker lists it the next time it opens. One that will not unzip is
 //   deleted again, with the reason. A plug-in listed there can be deleted
 //   from the page too.
+//
+// The Kits tab (web/kit_store.h, docs/KIT_MANAGER.md) reads the factory kits
+// and the card's, and makes and edits kits in Melodee/Projects/Kits; the MPC
+// loads them with Project > Load kit.
 //
 // The page's thread writes the card only while the base has it home; the
 // service thread says so in publish().
@@ -65,9 +70,11 @@ private:
     Reply upload_file(const Request& request, const Body& body);
     Reply make_folder(const Request& request);
     Reply delete_entry(const Request& request);
+    Reply kit_request(const Request& request); // /api/kits...
     Facts current();
     Server server;
     Mdns mdns; // melodee.local
+    KitStore kits; // the page's thread only
     std::mutex lock;
     std::condition_variable published;
     Facts facts;

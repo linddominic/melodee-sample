@@ -99,6 +99,61 @@ button:disabled { background: var(--line); color: var(--dim); cursor: default; }
 .lanes .empty { justify-content: center; color: var(--dim); font-size: 14px; }
 .lanes .empty::before { display: none; }
 
+/* Kits: the list at the side, the kit's sixteen pads as the MPC lays them out, the pad picked below. */
+.kits { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 20px; align-items: start; }
+.kit-side { position: sticky; top: 80px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 100px); }
+.kit-bar { display: flex; gap: 8px; }
+.kit-bar input, .param input, .param select { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--text); background: var(--quiet);
+  border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; }
+.kit-bar button { padding: 9px 14px; }
+.kit-filter { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg { padding: 6px 11px; font-size: 11px; background: var(--surf); color: var(--mid); border-radius: 7px; }
+.seg[aria-pressed=true] { background: var(--tone); color: var(--bg); }
+.kit-list { margin: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.kit-row { cursor: pointer; }
+.kit-row:hover, .kit-row.here { background: var(--surf); }
+.kit-row.here .name { color: var(--text); }
+.lanes .name small { display: block; font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+.kit-main { min-width: 0; }
+.kit-empty { padding: 48px 24px; text-align: center; color: var(--mid); background: var(--panel); border: 1px dashed var(--line); border-radius: 14px; }
+.kit-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.kit-head h1 { margin: 2px 0; font-size: 28px; font-weight: 500; overflow-wrap: anywhere; }
+.kit-sub { margin: 0; font-size: 13px; color: var(--mid); }
+.kit-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+button.quiet.danger:hover { color: var(--rec); }
+.kit-warn { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.kit-warn li { font-size: 13px; color: var(--amber); }
+.kit-warn li.note { color: var(--mid); }
+.banks { display: flex; gap: 4px; margin: 16px 0 10px; }
+.banks .seg { min-width: 36px; }
+.banks .seg.full:not([aria-pressed=true]) { color: var(--text); }
+.pad-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 560px; }
+.pad { aspect-ratio: 1; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 8px 10px; text-align: left;
+  background: var(--quiet); color: var(--dim); border: 1.5px solid var(--line); border-radius: 10px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.pad small { font-size: 11px; letter-spacing: .08em; }
+.pad span { font-size: 13px; overflow-wrap: anywhere; line-height: 1.2; max-height: 3.6em; overflow: hidden; }
+.pad.used { background: color-mix(in srgb, var(--tone) 16%, var(--surf)); color: var(--text); border-color: color-mix(in srgb, var(--tone) 50%, transparent); }
+.pad.used small { color: var(--tone); }
+.pad.missing { border-color: var(--rec); }
+.pad.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--text) inset; }
+.pad-panel { margin-top: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+.pad-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pad-head h2 { margin: 2px 0 0; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
+.layers { margin-top: 12px; }
+.pad-params { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.param { display: flex; flex-direction: column; gap: 4px; width: 104px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--mid); }
+.param-info { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--mid); }
+.picker { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.picker-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.picker-list { margin: 8px 0 0; max-height: 360px; overflow-y: auto; scrollbar-width: thin; }
+.picker-list .use { padding: 6px 12px; font-size: 11px; }
+.picker-list .entry.audio { cursor: pointer; }
+@media (max-width: 860px) {
+  .kits { grid-template-columns: 1fr; }
+  .kit-side { position: static; max-height: none; }
+  .kit-list { max-height: 300px; }
+}
+
 /* Files: the card's folders as lanes, a path to go back up, uploads by button or drop. */
 .files-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; flex: 1; min-width: 0; font-size: 15px; }
