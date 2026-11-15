@@ -166,9 +166,19 @@ on the card that hold a kit: `Melodee/Projects` and the stock app's
 - **New kit** makes an empty kit. **Duplicate** copies any kit, a factory
   one too, into an editable kit of your own.
 - **Sounds**, on the right, browses the card or the factory samples by
-  folder. Type in **Search sounds** to find a sound anywhere under them:
-  every word you type must be in the file's name or its folders. Click a
-  sound to hear it.
+  folder. Each sound shows its waveform, and a line runs across it as it
+  plays. Under its name: its folder, whether it is a one-shot or a loop,
+  what it is (kick, snare, hat, 808, vocal, FX…), and its BPM and key when
+  its name says them. These are read from the names of the file and its
+  folders, so they can be wrong.
+- Type in **Search sounds** to find a sound anywhere under the folder you
+  are in: every word must fit the file's name, its folders or what it is
+  ("hat" also finds `HH_01.wav`). Matches in the file's name come first.
+  **One-shots** and **Loops**, and the categories under them with how many
+  there are, narrow the list; a category alone lists every sound of it.
+- Click a sound to hear it. With the list or the search box in use, **↑**
+  and **↓** step through the sounds and play each, **Enter** puts the one
+  picked on the pad picked, and **Esc** clears the search.
 - Drag a sound onto a pad to put it there. In a kit of your own you can
   also pick a pad and press **Assign** on a sound. Dropping a sound on a
   factory kit, or another kit that is read only, asks for a name and makes

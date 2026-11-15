@@ -243,8 +243,11 @@ class KitStoreTests(unittest.TestCase):
 
     def test_sounds_for_search(self):
         (self.card / "autorun/boot.wav").write_bytes(wav(100))
-        files = self.ok("sounds", source="sd")["files"]
+        listed = self.ok("sounds", source="sd")
+        files = listed["files"]
         self.assertIn("Samples/Drums/Hit 00.wav", files)
+        self.assertEqual(len(listed["sizes"]), len(files))
+        self.assertEqual(listed["sizes"][files.index("Samples/Drums/Hit 00.wav")], len(wav(44100)))
         self.assertEqual(len([f for f in files if f.startswith("Samples/Drums/")]), 70)
         self.assertNotIn("Samples/Drums/notes.txt", files)
         self.assertFalse(any(f.startswith("autorun/") for f in files))

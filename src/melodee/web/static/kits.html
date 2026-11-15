@@ -52,14 +52,20 @@
   <section class="sounds" id="sounds" aria-label="Sounds">
     <div class="sounds-bar">
       <p class="label">Sounds</p>
-      <div class="kit-filter" role="group" aria-label="Sounds from">
+      <div class="kit-filter" role="group" aria-label="Sounds from" id="sound-source">
         <button type="button" class="seg" data-source="sd" aria-pressed="true">SD card</button>
         <button type="button" class="seg" data-source="factory" aria-pressed="false">Factory</button>
       </div>
     </div>
-    <input type="search" id="sound-search" placeholder="Search sounds" aria-label="Search sounds">
+    <input type="search" id="sound-search" placeholder="Search sounds: kick, hat 808, loop 120…" aria-label="Search sounds">
+    <div class="kit-filter" role="group" aria-label="Type" id="sound-types">
+      <button type="button" class="seg" data-type="" aria-pressed="true">All</button>
+      <button type="button" class="seg" data-type="oneshot" aria-pressed="false">One-shots</button>
+      <button type="button" class="seg" data-type="loop" aria-pressed="false">Loops</button>
+    </div>
+    <div class="sound-cats" id="sound-cats" role="group" aria-label="Category"></div>
     <nav class="crumbs" id="picker-crumbs" aria-label="Folder"></nav>
-    <ul class="lanes picker-list" id="picker-list"></ul>
+    <ul class="lanes picker-list" id="picker-list" tabindex="0" aria-label="Sounds: arrow keys to step through, Enter to assign"></ul>
     <p class="sounds-hint" id="sounds-hint"></p>
   </section>
 </div>

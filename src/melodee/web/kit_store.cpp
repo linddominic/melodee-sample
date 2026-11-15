@@ -862,6 +862,7 @@ Reply KitStore::sounds(const KitRoots& roots, const std::string& source) {
     std::string out = "{\"source\":" + json_text(source) + ",\"files\":[";
     size_t count = 0;
     bool full = false;
+    std::string sizes; // beside the paths, so the page draws waveforms only of files small enough to fetch at once
     std::error_code e;
     // Links to folders are not followed and links to files are left out, so nothing outside the root is named.
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, e), end;
@@ -879,9 +880,11 @@ Reply KitStore::sounds(const KitRoots& roots, const std::string& source) {
         }
         if (skip || link || !sampler_reads(path)) continue;
         if (count == sound_limit) { full = true; break; }
+        const auto size = it->file_size(f);
+        sizes += (count ? "," : "") + std::to_string(f ? 0 : size);
         out += (count++ ? "," : "") + json_text(path.lexically_relative(root).generic_string());
     }
-    return ok(out + "],\"full\":" + (full ? "true" : "false") + "}");
+    return ok(out + "],\"sizes\":[" + sizes + "],\"full\":" + (full ? "true" : "false") + "}");
 }
 
 } // namespace melodee::web

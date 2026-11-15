@@ -59,7 +59,7 @@ public:
     Reply sample_audio(const KitRoots& roots, const std::string& sample);
     // GET: a folder of samples to pick from: source "sd" or "factory", `rel` under it.
     Reply samples(const KitRoots& roots, const std::string& source, const std::string& rel);
-    // GET: every sound under a source, for a search: {"source", "files":[rel...], "full"} (full: the limit was reached).
+    // GET: every sound under a source, for a search: {"source", "files":[rel...], "sizes":[bytes...], "full"} (full: the limit was reached).
     Reply sounds(const KitRoots& roots, const std::string& source);
 
 private:

@@ -204,6 +204,33 @@ body.dragging-sound .pad { border-style: dashed; }
 .picker-list .entry.audio:hover { background: var(--surf); }
 .picker-list .use { padding: 5px 10px; font-size: 10px; }
 .sounds[data-assign=off] .use { display: none; }
+/* Sounds: compact rows, a small waveform with the playhead, the name with what was typed marked, one line of what it is. */
+.picker-list:focus { outline: none; }
+.picker-list li.audio { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 8px; min-height: 0; padding: 4px 8px 4px 12px; }
+.picker-list li.audio::before { width: 3px; }
+.picker-list .mini { position: relative; height: 26px; border-radius: 5px; background: color-mix(in srgb, var(--stripe) 10%, transparent); overflow: hidden; }
+.picker-list .mini canvas { display: block; width: 100%; height: 100%; color: var(--stripe); }
+.picker-list .mini .head { position: absolute; top: 0; bottom: 0; left: calc(100% * var(--pos, 0)); width: 2px; margin-left: -1px; background: var(--text); opacity: 0; }
+.picker-list li.sounding .mini .head { opacity: .9; }
+.picker-list li.audio .name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.picker-list li.audio .name b { font-weight: 500; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-list li.audio .name small { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-list mark { background: color-mix(in srgb, var(--amber) 35%, transparent); color: inherit; border-radius: 2px; }
+.picker-list li.audio .use { opacity: 0; }
+.picker-list li.audio:hover .use, .picker-list li.audio.sel .use { opacity: 1; }
+.picker-list li.sel { background: var(--surf); box-shadow: 0 0 0 1px var(--line) inset; }
+.picker-list li.playing .name b { color: var(--stripe); }
+.picker-list li.count { min-height: 0; padding: 2px 4px; background: none; font-size: 11px; color: var(--mid); }
+.picker-list li.count::before { display: none; }
+.picker-list li.dir { min-height: 30px; padding: 4px 10px 4px 14px; }
+.sound-cats { display: flex; flex-wrap: wrap; gap: 4px; flex: none; }
+.sound-cats:empty { display: none; }
+.chip-btn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; font-size: 11px; letter-spacing: 0; text-transform: none; font-weight: 500;
+  color: var(--sec); background: var(--quiet); border: 1px solid var(--line); border-radius: 999px; }
+.chip-btn span { font-size: 10px; color: var(--dim); }
+.chip-btn[aria-pressed=true] { background: var(--mint); border-color: var(--mint); color: var(--bg); }
+.chip-btn[aria-pressed=true] span { color: var(--bg); }
+#sound-types { flex: none; }
 .sounds-hint { flex: none; margin: 0; font-size: 11px; color: var(--dim); }
 @media (prefers-reduced-motion: reduce) { .pad.hit { animation: none; } }
 @media (max-width: 1100px) {

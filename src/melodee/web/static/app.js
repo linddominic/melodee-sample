@@ -424,6 +424,117 @@ const files = {
 
 // ---- Kits: the factory kits and the card's, and kits of one's own (docs/KIT_MANAGER.md) ----
 
+// ---- What a sound is, read from its name and its folders (nothing is opened for it) ----
+// Categories in the order they are tried: "808 Kick" is a kick, "808 Bass" an 808.
+const soundCats = [
+  ["kick", "Kick", /\b(kicks?|kik|kck|bd|bassdrums?|bass drums?)\b/],
+  ["snare", "Snare", /\b(snares?|snr|sd|rimshots?)\b/],
+  ["clap", "Clap", /\b(claps?|clp|cp|snaps?)\b/],
+  ["hat", "Hat", /\b(hats?|hh|hihats?|hi hats?|oh|ch|open hats?|closed hats?)\b/],
+  ["cymbal", "Cymbal", /\b(cymbals?|crash(es)?|rides?|china|splash)\b/],
+  ["perc", "Perc", /\b(percs?|percussion|shakers?|tamb|tambourines?|congas?|bongos?|rims?|toms?|cowbells?|claves?|blocks?|timbales?|triangles?)\b/],
+  ["bass", "808 · Bass", /\b(808s?|subs?|bass|basses|bassline|basslines|reese)\b/],
+  ["vocal", "Vocal", /\b(vox|vocals?|voices?|chants?|adlibs?|acapellas?)\b/],
+  ["fx", "FX", /\b(fx|sfx|risers?|uplifters?|downlifters?|impacts?|sweeps?|whoosh(es)?|noises?|transitions?)\b/],
+  ["melodic", "Melodic", /\b(synths?|keys|pianos?|pads|leads?|chords?|plucks?|guitars?|gtr|strings?|bells?|organs?|rhodes|stabs?|arps?|melod(y|ies|ic)|brass|flutes?)\b/],
+];
+const catLabel = Object.fromEntries(soundCats.map(([id, label]) => [id, label]));
+const oneShotCats = new Set(["kick", "snare", "clap", "hat", "cymbal", "perc", "fx"]); // with no sign of a loop: hits
+
+// A name as words: "SnareRoll_128bpm-01.wav" -> " snare roll 128 bpm 01 ".
+function soundWords(text) {
+  return " " + text.replace(/\.[a-z0-9]{2,4}$/i, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9#]+/g, " ") + " ";
+}
+function catOf(words) { for (const [id, , re] of soundCats) if (re.test(words)) return id; return ""; }
+// Loop or one-shot by what a name or folder says, else "".
+function typeOf(words) {
+  if (/\b(loops?|grooves?|breaks?|breakbeats?|beats?|fills?|phrases?|toplines?)\b/.test(words)) return "loop";
+  if (/\b(one ?shots?|oneshots?|hits?|shots?|singles?)\b/.test(words)) return "oneshot";
+  return "";
+}
+// A key only when the name says it plainly: "Cmin9", "F# minor", "Dbm", "Key_A"; never a lone letter ("Kick A").
+function keyOf(file) {
+  const t = file.replace(/\.[^.]+$/, "").split(/[\s_\-.()[\],]+/).filter(Boolean);
+  for (let i = 0; i < t.length; i++) {
+    const m = t[i].match(/^([A-G])(#|b|♯|♭)?(m|min|minor|maj|major|M)?(\d{0,2})$/);
+    if (!m) continue;
+    let quality = m[3] || "";
+    const next = (t[i + 1] || "").toLowerCase();
+    if (!quality && /^(maj|major|min|minor)$/.test(next)) quality = next;
+    if (!m[2] && !quality && !(i > 0 && /^key$/i.test(t[i - 1]))) continue;
+    if (m[4] && !quality) continue; // "C4", "A1": a note or a number
+    const sharp = m[2] === "♯" ? "#" : m[2] === "♭" ? "b" : m[2] || "";
+    return m[1] + sharp + (/^(m|min|minor)$/.test(quality) ? "m" : "");
+  }
+  return "";
+}
+// {cat, type, bpm, key} of a path under a source, from the file's name first, then its folders, nearest first.
+function classify(rel) {
+  const parts = rel.split("/"), file = parts[parts.length - 1], name = soundWords(file);
+  const folders = parts.slice(0, -1).reverse().map(soundWords);
+  let cat = catOf(name), type = typeOf(name);
+  for (const f of folders) { if (!cat) cat = catOf(f); if (!type) type = typeOf(f); }
+  let bpm = 0;
+  const said = name.match(/ (\d{2,3}) ?bpm /) || name.match(/ bpm ?(\d{2,3}) /);
+  if (said) bpm = +said[1];
+  else if (type === "loop") { const bare = name.match(/ (\d{2,3}) /g) || []; for (const b of bare) if (+b >= 70 && +b <= 200) { bpm = +b; break; } }
+  if (bpm < 50 || bpm > 220) bpm = 0;
+  if (!type) type = bpm ? "loop" : oneShotCats.has(cat) ? "oneshot" : "";
+  return {cat, type, bpm, key: keyOf(file)};
+}
+// One sound of a source's list, with what is read from its name.
+function soundItem(rel, size) {
+  const at = rel.lastIndexOf("/"), folder = at > 0 ? rel.slice(0, at) : "";
+  return {rel, low: rel.toLowerCase(), name: rel.slice(at + 1), folder, near: folder.slice(folder.lastIndexOf("/") + 1), size: size ?? -1,
+          nameWords: soundWords(rel.slice(at + 1)), ...classify(rel)};
+}
+// How well a sound fits typed words: 0 when one does not fit at all. A word fits the file's name (best), its
+// folders, or its category ("hat" finds "HH_01.wav").
+function soundScore(item, words) {
+  let score = 0;
+  for (const w of words) {
+    const cat = catOf(" " + w + " ");
+    if (item.nameWords.includes(" " + w) || item.name.toLowerCase().includes(w)) score += 3;
+    else if (cat && cat === item.cat) score += 2;
+    else if (item.low.includes(w)) score += 1;
+    else return 0;
+  }
+  return score - item.name.length / 400; // shorter names first among equals
+}
+// The name with the typed words marked.
+function markWords(text, words) {
+  const out = document.createDocumentFragment(), low = text.toLowerCase(), marks = [];
+  for (const w of words) { const at = low.indexOf(w); if (w && at >= 0) marks.push([at, at + w.length]); }
+  marks.sort((a, b) => a[0] - b[0]);
+  let at = 0;
+  for (const [from, to] of marks) {
+    if (from < at) continue;
+    out.append(text.slice(at, from));
+    const m = document.createElement("mark");
+    m.textContent = text.slice(from, to);
+    out.append(m);
+    at = to;
+  }
+  out.append(text.slice(at));
+  return out;
+}
+// A waveform's peaks drawn into a canvas as wide as it is shown.
+function drawPeaks(canvas, peaks, from = 0, to = 1) {
+  const dpr = window.devicePixelRatio || 1, w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  canvas.width = w; canvas.height = h;
+  const g = canvas.getContext("2d"), bars = Math.min(peaks.length, Math.floor(w / (2 * dpr))) || 1, step = peaks.length / bars, bar = w / bars;
+  g.fillStyle = getComputedStyle(canvas).color;
+  for (let i = 0; i < bars; i++) {
+    let top = 0;
+    for (let j = Math.floor(i * step); j < Math.floor((i + 1) * step); j++) top = Math.max(top, peaks[j]);
+    const at = (i + .5) / bars;
+    g.globalAlpha = at >= from && at <= to ? .9 : .28;
+    const y = Math.max(dpr, top * h * .92);
+    g.fillRect(i * bar, (h - y) / 2, Math.max(dpr, bar - dpr * .6), y);
+  }
+}
+
 // Waiting on the MPC for something one asked for: a thin bar under the top bar once it takes longer than feels
 // instant (about a tenth of a second); background reads (preloads, the kit list filling in) do not show it.
 const busy = {
@@ -442,7 +553,7 @@ const busy = {
 // Kit sound: each pad's file fetched and decoded once, then played with Web Audio, so a tap sounds at once
 // (an <audio> element asked the MPC again on every tap). The decoded audio also draws each pad's waveform.
 const sound = {
-  ctx: null, cache: new Map(), voices: new Map(), queue: Promise.resolve(),
+  ctx: null, cache: new Map(), voices: new Map(), queue: Promise.resolve(), peaks: new Map(), recent: [],
   context() {
     const C = window.AudioContext || window.webkitAudioContext;
     if (!this.ctx && C) this.ctx = new C({latencyHint: "interactive"});
@@ -477,7 +588,14 @@ const sound = {
       const bytes = await r.arrayBuffer();
       const rate = wavRate(bytes);
       const buffer = await ctx.decodeAudioData(bytes);
-      return {buffer, peaks: peaksOf(buffer), rate: rate || buffer.sampleRate};
+      const got = {buffer, peaks: peaksOf(buffer), rate: rate || buffer.sampleRate};
+      this.peaks.set(url, got.peaks);
+      // Sounds from the browser's list: their peaks are kept, their audio only for the last few heard or drawn.
+      if (url.startsWith("/api/kits/sample?")) {
+        this.recent.push(url);
+        while (this.recent.length > 24) this.cache.delete(this.recent.shift());
+      }
+      return got;
     })().catch(() => null).then(e.done);
     return e.promise;
   },
@@ -561,7 +679,7 @@ if (navigator.keyboard && navigator.keyboard.getLayoutMap)
 
 const kits = {
   here: !!$("#kits"),
-  list: [], show: "all", kit: null, bank: 0, pad: null, source: "sd", folder: "", playing: "",
+  list: [], show: "all", kit: null, bank: 0, pad: null, source: "sd", folder: "", playing: "", type: "", cat: "", rows: [], sel: -1,
   async get(url, quiet) {
     if (!quiet) return busy.run(() => this.get(url, true));
     const r = await fetch(url, {cache: "no-store"});
@@ -796,6 +914,12 @@ const kits = {
         b.classList.toggle("sounding", at !== null);
         if (at !== null) { any = true; b.style.setProperty("--pos", at); }
       });
+      const heard = sound.where("audition");
+      (this.rows || []).forEach(li => {
+        const on = heard !== null && li.dataset.url === this.playing;
+        li.classList.toggle("sounding", on);
+        if (on) { any = true; li.style.setProperty("--pos", heard); }
+      });
       this.frame = any ? requestAnimationFrame(step) : 0;
     };
     this.frame = requestAnimationFrame(step);
@@ -915,11 +1039,13 @@ const kits = {
     const got = await sound.load(url, true);
     if (this.playing !== url) return;
     if (!got) { this.playing = ""; this.drawPadButtons(); this.sayPad("The browser cannot play this file"); return; }
-    sound.start("audition", got, {done: () => { if (this.playing === url) { this.playing = ""; this.drawPadButtons(); } }});
+    this.drawRowWave(url);
+    sound.start("audition", got, {done: () => { if (this.playing === url) { this.playing = ""; this.drawPadButtons(); } this.playhead(); }});
+    this.playhead();
   },
   drawPadButtons() {
     $$("#pad-layers .act").forEach((b, i) => { const pad = this.padOf(this.pad); if (pad) b.innerHTML = glyphs[this.playing === this.padUrl(this.pad, pad.layers.filter(l => l.preview)[i]?.index) ? "stop" : "play"]; });
-    $$("#picker-list .act.play").forEach(b => { b.innerHTML = glyphs[this.playing === b.dataset.url ? "stop" : "play"]; });
+    $$("#picker-list li.audio").forEach(li => li.classList.toggle("playing", li.dataset.url === this.playing));
   },
   async edit(values) {
     const say = $("#pad-say");
@@ -944,94 +1070,227 @@ const kits = {
     if (i >= 0) this.list[i] = row; else this.list.push(row);
     this.draw();
   },
+  // ---- Sounds: a folder of the source, or (with words typed or a filter on) every sound under it that fits ----
   async browse(folder) {
     this.folder = folder;
-    if ($("#sound-search").value.trim()) return this.find();
-    const ul = $("#picker-list"), nav = $("#picker-crumbs"), source = this.source;
-    let data;
-    try { data = await this.get("/api/kits/samples?" + this.q({source, path: folder})); }
-    catch (e) { ul.innerHTML = ""; nav.innerHTML = ""; this.say(ul, e.message); return; }
-    if (this.source !== source || this.folder !== folder || $("#sound-search").value.trim()) return; // moved on meanwhile
+    return this.render();
+  },
+  filtering() { return !!($("#sound-search").value.trim() || this.type || this.cat); },
+  crumbs() {
+    const nav = $("#picker-crumbs"), parts = this.folder ? this.folder.split("/") : [];
     nav.innerHTML = "";
-    nav.hidden = false;
-    const parts = folder ? folder.split("/") : [];
     const crumb = (label, to) => { const a = document.createElement("a"); a.href = "#"; a.textContent = label; a.addEventListener("click", e => { e.preventDefault(); this.browse(to); }); return a; };
     nav.append(crumb(this.source === "sd" ? "SD card" : "Factory samples", ""));
     parts.forEach((p, i) => { const s = document.createElement("span"); s.className = "sep"; s.textContent = "/"; nav.append(s, crumb(p, parts.slice(0, i + 1).join("/"))); });
-    ul.innerHTML = "";
-    const shown = data.entries.filter(e => e.dir || audioKinds.test(e.name));
-    if (!shown.length) { this.say(ul, "No samples here"); return; }
-    shown.forEach(e => {
-      const rel = folder ? folder + "/" + e.name : e.name;
-      if (!e.dir) { ul.append(this.soundRow(rel, e.name)); return; }
-      const li = document.createElement("li");
-      li.className = "entry dir";
-      li.style.setProperty("--stripe", "var(--amber)");
-      li.innerHTML = glyphs.dir;
-      const name = document.createElement("span");
-      name.className = "name";
-      name.textContent = e.name;
-      li.append(name);
-      li.addEventListener("click", () => this.browse(rel));
-      ul.append(li);
-    });
   },
-  // Every sound under the source, fetched once a visit, then searched here as one types: all words, in any order,
-  // in the file's name or its folders.
-  async find() {
-    const ul = $("#picker-list"), nav = $("#picker-crumbs"), source = this.source, words = $("#sound-search").value.trim().toLowerCase();
-    if (!words) return this.browse(this.folder);
-    nav.hidden = true;
+  async render() {
+    const ul = $("#picker-list"), source = this.source, folder = this.folder, words = $("#sound-search").value.trim().toLowerCase();
+    const asked = [source, folder, words, this.type, this.cat].join("\n");
+    this.asked = asked;
+    this.crumbs();
+    this.drawTypes();
+    if (!this.filtering()) {
+      let data;
+      try { data = await this.get("/api/kits/samples?" + this.q({source, path: folder})); }
+      catch (e) { ul.innerHTML = ""; this.say(ul, e.message); return; }
+      if (this.asked !== asked) return; // moved on meanwhile
+      const shown = data.entries.filter(e => e.dir || audioKinds.test(e.name));
+      this.fill(shown.map(e => {
+        const rel = folder ? folder + "/" + e.name : e.name;
+        return e.dir ? {dir: true, rel, name: e.name} : soundItem(rel, e.size);
+      }), [], shown.length ? "" : "No samples here");
+      this.chips(); // the categories under this folder, once the list of every sound is in
+      return;
+    }
     if (!this.indexed(source)) { ul.innerHTML = ""; this.say(ul, `Getting the list of sounds on the ${source === "sd" ? "card" : "MPC"}…`); }
     let index;
     try { index = await this.sounds(source); } catch (e) { ul.innerHTML = ""; this.say(ul, e.message); return; }
-    if (this.source !== source || $("#sound-search").value.trim().toLowerCase() !== words) return; // typed on meanwhile
-    const parts = words.split(/\s+/), found = [];
-    for (const [rel, low] of index.files) if (parts.every(w => low.includes(w))) { found.push(rel); if (found.length > 300) break; }
+    if (this.asked !== asked) return;
+    const parts = words ? words.split(/\s+/) : [], fits = [];
+    for (const item of this.under(index)) {
+      if (this.type && item.type !== this.type) continue;
+      const score = parts.length ? soundScore(item, parts) : 1;
+      if (score > 0) fits.push([score, item]);
+    }
+    this.chips(fits.map(f => f[1]));
+    const found = fits.filter(([, item]) => !this.cat || item.cat === this.cat);
+    if (parts.length) found.sort((a, b) => b[0] - a[0]);
+    const where = this.folder ? ` in ${this.folder.split("/").pop()}` : "";
+    this.fill(found.slice(0, 300).map(f => f[1]), parts,
+      found.length ? "" : `No sounds fit${where}, of ${index.files.length.toLocaleString()}`,
+      found.length > 300 ? `The best 300 of ${found.length.toLocaleString()}: type more or filter to narrow it` : `${found.length.toLocaleString()} ${found.length === 1 ? "sound" : "sounds"}${where}`);
+  },
+  under(index) {
+    if (!this.folder) return index.files;
+    const head = this.folder.toLowerCase() + "/"; // the card's names ignore case, as FAT does
+    return index.files.filter(item => item.low.startsWith(head));
+  },
+  // The list's rows: folders, then sounds; `note` above them, `empty` instead of them.
+  fill(items, words, empty, note) {
+    const ul = $("#picker-list");
     ul.innerHTML = "";
-    const many = index.files.length.toLocaleString();
-    if (!found.length) { this.say(ul, `No sounds match, of ${many}`); return; }
-    found.slice(0, 300).forEach(rel => { const at = rel.lastIndexOf("/"); ul.append(this.soundRow(rel, rel.slice(at + 1), at > 0 ? rel.slice(0, at) : "")); });
-    if (found.length > 300) this.say(ul, "Showing the first 300: type more to narrow it");
+    this.rows = [];
+    this.sel = -1;
+    if (note) { const li = document.createElement("li"); li.className = "count"; li.textContent = note; ul.append(li); }
+    if (!items.length) { this.say(ul, empty || "Nothing here"); return; }
+    for (const item of items) {
+      if (item.dir) {
+        const li = document.createElement("li");
+        li.className = "entry dir";
+        li.style.setProperty("--stripe", "var(--amber)");
+        li.innerHTML = glyphs.dir;
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = item.name;
+        li.append(name);
+        li.addEventListener("click", () => this.browse(item.rel));
+        ul.append(li);
+      } else {
+        const li = this.soundRow(item, words);
+        this.rows.push(li);
+        ul.append(li);
+      }
+    }
+    this.watchWaves();
   },
-  // Every sound under a source, asked for once a visit: [[path, lower case path]...] and whether the list was cut.
-  sounds(source) {
-    this.index = this.index || {};
-    if (!this.index[source])
-      this.index[source] = this.get("/api/kits/sounds?" + this.q({source}), true)
-        .then(d => { const index = {files: d.files.map(f => [f, f.toLowerCase()]), full: d.full}; this.index[source].done = true; return index; })
-        .catch(e => { delete this.index[source]; throw e; });
-    return this.index[source];
-  },
-  indexed(source) { return !!(this.index && this.index[source] && this.index[source].done); },
-  soundRow(rel, label, where) {
-    const id = this.source + ":" + rel, url = "/api/kits/sample?" + this.q({sample: id});
+  // One sound: its waveform (drawn when it scrolls into view), its name, and one line of what it is.
+  soundRow(item, words = []) {
+    const id = this.source + ":" + item.rel, url = "/api/kits/sample?" + this.q({sample: id});
     const li = document.createElement("li");
-    li.className = "entry audio";
-    li.style.setProperty("--stripe", "var(--mint)");
+    li.className = "entry audio" + (this.playing === url ? " playing" : "");
+    li.style.setProperty("--stripe", item.type === "loop" ? "var(--lilac)" : "var(--mint)");
     li.draggable = true;
-    li.innerHTML = glyphs.audio;
+    li.dataset.url = url;
+    li.dataset.id = id;
+    li.dataset.size = item.size;
+    li.title = item.rel;
+    const box = document.createElement("span");
+    box.className = "mini";
+    const wave = document.createElement("canvas");
+    const head = document.createElement("i");
+    head.className = "head";
+    box.append(wave, head);
+    const peaks = sound.peaks.get(url);
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = label;
-    if (where) { const small = document.createElement("small"); small.textContent = where; name.append(small); }
-    const play = document.createElement("button");
-    play.type = "button"; play.className = "act play"; play.title = "Play"; play.dataset.url = url;
-    play.innerHTML = glyphs[this.playing === url ? "stop" : "play"];
-    play.addEventListener("click", ev => { ev.stopPropagation(); this.audition(url, true); });
+    const title = document.createElement("b");
+    title.append(markWords(item.name.replace(/\.[a-z0-9]{2,4}$/i, ""), words));
+    const meta = document.createElement("small");
+    const cat = catLabel[item.cat] || "", near = item.near.toLowerCase();
+    const bits = [item.near, item.type === "oneshot" ? "one-shot" : item.type === "loop" ? "loop" : "",
+                  cat && !near.includes(cat.toLowerCase()) && !near.includes(item.cat) ? cat : "", // "Kicks · one-shot", not "· Kick" again
+                  item.bpm ? item.bpm + " BPM" : "", item.key].filter(Boolean);
+    meta.textContent = bits.join(" · ");
+    name.append(title, meta);
     const use = document.createElement("button");
     use.type = "button"; use.className = "use"; use.textContent = "Assign";
     use.addEventListener("click", ev => { ev.stopPropagation(); if (this.pad !== null) this.put(this.pad, id); });
-    li.append(name, play, use);
-    li.addEventListener("click", () => this.audition(url, true));
+    li.append(box, name, use);
+    if (peaks) requestAnimationFrame(() => drawPeaks(wave, peaks));
+    li.addEventListener("click", () => { this.select(this.rows.indexOf(li), false); this.audition(url, true); $("#picker-list").focus({preventScroll: true}); });
     li.addEventListener("dragstart", ev => {
       ev.dataTransfer.setData("application/x-melodee-sound", id);
-      ev.dataTransfer.setData("text/plain", label);
+      ev.dataTransfer.setData("text/plain", item.name);
       ev.dataTransfer.effectAllowed = "copy";
       document.body.classList.add("dragging-sound");
     });
     li.addEventListener("dragend", () => document.body.classList.remove("dragging-sound"));
     return li;
+  },
+  // Waveforms for the rows in view, fetched one at a time; files over 3 MB wait until they are played.
+  watchWaves() {
+    if (this.seen) this.seen.disconnect();
+    if (!("IntersectionObserver" in window)) return;
+    this.waves = [];
+    this.seen = new IntersectionObserver(entries => {
+      for (const e of entries) e.target.inView = e.isIntersecting;
+      this.waves = this.rows.filter(li => li.inView && !sound.peaks.has(li.dataset.url) && +li.dataset.size >= 0 && +li.dataset.size <= 3e6);
+      this.nextWave();
+    }, {root: $("#picker-list"), rootMargin: "120px 0px"});
+    this.rows.forEach(li => this.seen.observe(li));
+  },
+  async nextWave() {
+    if (this.waving) return;
+    this.waving = true;
+    while (this.waves && this.waves.length) {
+      const li = this.waves.shift();
+      if (!li.isConnected || !li.inView || sound.peaks.has(li.dataset.url)) continue;
+      await sound.load(li.dataset.url, true);
+      this.drawRowWave(li.dataset.url);
+    }
+    this.waving = false;
+  },
+  drawRowWave(url) {
+    const peaks = sound.peaks.get(url);
+    if (!peaks) return;
+    $$("#picker-list li.audio").forEach(li => { if (li.dataset.url === url) drawPeaks(li.querySelector("canvas"), peaks); });
+  },
+  // One-shots / loops, and the categories among what fits (with how many), to narrow it to one.
+  drawTypes() {
+    $$("#sound-types .seg").forEach(b => b.setAttribute("aria-pressed", b.dataset.type === (this.type || "")));
+  },
+  async chips(items) {
+    const box = $("#sound-cats"), source = this.source, asked = this.asked;
+    if (!items) {
+      if (!this.indexed(source)) { box.innerHTML = ""; try { await this.sounds(source); } catch { return; } }
+      if (this.asked !== asked) return;
+      items = this.under(await this.sounds(source));
+      if (this.type) items = items.filter(i => i.type === this.type);
+    }
+    const counts = {};
+    for (const i of items) if (i.cat) counts[i.cat] = (counts[i.cat] || 0) + 1;
+    box.innerHTML = "";
+    for (const [id, label] of soundCats) {
+      if (!counts[id] && this.cat !== id) continue;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip-btn";
+      b.setAttribute("aria-pressed", this.cat === id);
+      b.innerHTML = "";
+      b.append(label, Object.assign(document.createElement("span"), {textContent: (counts[id] || 0).toLocaleString()}));
+      b.addEventListener("click", () => { this.cat = this.cat === id ? "" : id; this.render(); });
+      box.append(b);
+    }
+  },
+  // Every sound under a source, asked for once a visit, each read for what it is.
+  sounds(source) {
+    this.index = this.index || {};
+    if (!this.index[source])
+      this.index[source] = this.get("/api/kits/sounds?" + this.q({source}), true)
+        .then(d => {
+          const sizes = d.sizes || [];
+          const index = {files: d.files.map((f, i) => soundItem(f, sizes[i])), full: d.full};
+          this.index[source].done = true;
+          return index;
+        })
+        .catch(e => { delete this.index[source]; throw e; });
+    return this.index[source];
+  },
+  indexed(source) { return !!(this.index && this.index[source] && this.index[source].done); },
+  // The row at `i` picked (arrow keys or a click): marked and kept in view; `play` plays it.
+  select(i, play = true) {
+    if (!this.rows || !this.rows.length) return;
+    this.sel = Math.max(0, Math.min(this.rows.length - 1, i));
+    this.rows.forEach((li, n) => li.classList.toggle("sel", n === this.sel));
+    const li = this.rows[this.sel];
+    li.scrollIntoView({block: "nearest"});
+    if (play) this.audition(li.dataset.url);
+  },
+  soundKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      this.select(this.sel < 0 ? 0 : this.sel + (e.key === "ArrowDown" ? 1 : -1));
+    } else if (e.key === "Enter" && this.sel >= 0 && this.rows[this.sel]) {
+      e.preventDefault();
+      if (this.kit && this.pad !== null) this.put(this.pad, this.rows[this.sel].dataset.id);
+      else this.audition(this.rows[this.sel].dataset.url, true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      $("#sound-search").value = "";
+      this.type = this.cat = "";
+      this.render();
+    }
   },
   // A sound onto pad n; on a kit that is not one's own, an editable copy is made first (asked).
   async put(n, id) {
@@ -1096,13 +1355,16 @@ const kits = {
       $$("#kits .kit-side .seg").forEach(x => x.setAttribute("aria-pressed", x === b));
       this.draw();
     }));
-    $$("#sounds .seg").forEach(b => b.addEventListener("click", () => {
+    $$("#sound-source .seg").forEach(b => b.addEventListener("click", () => {
       this.source = b.dataset.source;
-      $$("#sounds .seg").forEach(x => x.setAttribute("aria-pressed", x === b));
+      $$("#sound-source .seg").forEach(x => x.setAttribute("aria-pressed", x === b));
+      this.cat = "";
       this.browse("");
     }));
+    $$("#sound-types .seg").forEach(b => b.addEventListener("click", () => { this.type = b.dataset.type; this.render(); }));
     let typing = 0;
-    $("#sound-search").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => this.find(), 120); });
+    $("#sound-search").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => this.render(), 120); });
+    $("#sounds").addEventListener("keydown", e => this.soundKey(e));
     this.browse("");
     this.hint();
     $("#kit-new").addEventListener("click", () => this.make());
