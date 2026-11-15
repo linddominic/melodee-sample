@@ -631,6 +631,7 @@ const sound = {
     v.gain.gain.linearRampToValueAtTime(0, t + 0.012);
     v.src.stop(t + 0.015);
   },
+  stopAll() { for (const key of [...this.voices.keys()]) this.stop(key); },
   // Where a voice is heard now, 0-1 of its whole file: the output's latency taken off, so the line meets the sound.
   where(key) {
     const v = this.voices.get(key);
@@ -773,7 +774,7 @@ const kits = {
     $("#kit-none").hidden = !!k;
     $("#kit-open").hidden = !k;
     this.hint();
-    if (!k) return;
+    if (!k) { this.stopHidden(); return; }
     $("#kit-source").textContent = k.source === "factory" ? "Factory kit · read only" : k.readOnly ? "SD card · read only" : "My kit";
     $("#kit-source").style.setProperty("--tone", k.source === "factory" ? "var(--lilac)" : k.readOnly ? "var(--amber)" : "var(--coral)");
     $("#kit-name").textContent = k.name;
@@ -829,11 +830,11 @@ const kits = {
         if (!e.dataTransfer.types.includes("application/x-melodee-sound")) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "copy";
-        b.classList.add("drop");
+        b.classList.add("taking");
       });
-      b.addEventListener("dragleave", () => b.classList.remove("drop"));
+      b.addEventListener("dragleave", () => b.classList.remove("taking"));
       b.addEventListener("drop", e => {
-        b.classList.remove("drop");
+        b.classList.remove("taking");
         const id = e.dataTransfer.getData("application/x-melodee-sound");
         if (!id) return;
         e.preventDefault();
@@ -844,11 +845,13 @@ const kits = {
       if (pad) this.wave(n);
     }
     this.drawPad();
+    this.stopHidden(); // another bank or kit: the pads gone from view stop
   },
   pick(n) {
     this.pad = n;
     $$("#pad-grid .pad").forEach(p => p.classList.toggle("on", +p.dataset.n === n));
     this.drawPad();
+    this.stopHidden(); // a layer of the pad before
   },
   // The pad's first layer the browser can play, and its address.
   heard(n) {
@@ -920,15 +923,38 @@ const kits = {
         li.classList.toggle("sounding", on);
         if (on) { any = true; li.style.setProperty("--pos", heard); }
       });
-      this.frame = any ? requestAnimationFrame(step) : 0;
+      const sounding = sound.voices.size > 0;
+      const stop = $("#stop-all");
+      if (stop) { stop.disabled = !sounding; stop.classList.toggle("on", sounding); }
+      this.frame = any || sounding ? requestAnimationFrame(step) : 0;
     };
     this.frame = requestAnimationFrame(step);
   },
+  // Everything that sounds, off (Stop, or Esc outside a text box).
+  stopAll() {
+    sound.stopAll();
+    this.playing = "";
+    this.drawPadButtons();
+    this.playhead();
+  },
+  // What plays but can no longer be seen stops: pads of another bank or kit, a sound gone from the list, a layer of
+  // another pad.
+  stopHidden() {
+    const shown = new Set($$("#pad-grid .pad").map(b => this.voice(+b.dataset.n)));
+    for (const key of [...sound.voices.keys()]) if (key.startsWith("pad:") && !shown.has(key)) sound.stop(key);
+    const p = this.playing;
+    const listed = p.startsWith("/api/kits/sample?") && (this.rows || []).some(li => li.dataset.url === p);
+    const layer = p.startsWith("/api/kits/audio?") && this.kit && this.pad !== null && p.startsWith(this.padUrl(this.pad, 0).replace(/layer=0$/, ""));
+    if (p && !listed && !layer) { sound.stop("audition"); this.playing = ""; this.drawPadButtons(); }
+    this.playhead();
+  },
   sayPad(words) { const say = $("#pad-say"); if (say) { say.className = "say bad"; say.textContent = words; } },
   key(e, down) {
-    if (!this.kit || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target;
     if (t && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
+    if (down && e.key === "Escape") { this.stopAll(); return; }
+    if (!this.kit) return;
     const i = padKeys.indexOf(e.code);
     if (i < 0) return;
     e.preventDefault();
@@ -1230,6 +1256,7 @@ const kits = {
       }
     }
     this.watchWaves();
+    this.stopHidden(); // the sound playing, if it is no longer listed
   },
   // One sound: its waveform (drawn when it scrolls into view), its name, and one line of what it is.
   soundRow(item, words = []) {
@@ -1457,6 +1484,7 @@ const kits = {
     let typing = 0;
     $("#sound-search").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => this.render(), 120); });
     $("#sounds").addEventListener("keydown", e => this.soundKey(e));
+    $("#stop-all").addEventListener("click", () => this.stopAll());
     this.browse("");
     this.hint();
     $("#kit-new").addEventListener("click", () => this.make());

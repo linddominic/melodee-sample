@@ -185,7 +185,8 @@ button.quiet.danger:hover { color: var(--rec); }
 @keyframes pad-hit { from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone) 70%, transparent) inset; } }
 /* While a sound is dragged the pads say they take it; the one under it lights. */
 body.dragging-sound .pad { border-style: dashed; }
-.pad.drop { border-style: solid !important; border-color: var(--mint); background: color-mix(in srgb, var(--mint) 22%, var(--surf)); }
+/* Not .drop: that is the upload area's (min-height 148px), and it made the pad under a drag grow. */
+.pad.taking { border-style: solid !important; border-color: var(--mint); background: color-mix(in srgb, var(--mint) 22%, var(--surf)); }
 .pad-keys { margin: 8px 0 0; font-size: 11px; line-height: 1.6; color: var(--dim); }
 .pad-keys kbd { font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; color: var(--mid); }
 .pad-panel { flex: 1; min-width: 240px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
@@ -234,6 +235,10 @@ body.dragging-sound .pad { border-style: dashed; }
 .picker-list li.dir .name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .picker-list li.dir .name b { font-weight: 500; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .picker-list li.dir .name small { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-all { margin-right: auto; margin-left: 8px; padding: 4px 10px; font-size: 10px; color: var(--mid); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
+.stop-all span { font-size: 9px; }
+.stop-all.on { color: var(--bg); background: var(--coral); border-color: var(--coral); }
+.stop-all:disabled { opacity: .45; cursor: default; }
 .sound-nav { display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; }
 .back-btn { flex: none; width: 26px; height: 26px; padding: 0; font-size: 18px; line-height: 1; color: var(--text); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
 .back-btn:disabled { opacity: .35; cursor: default; }

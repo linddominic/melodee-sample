@@ -155,6 +155,9 @@ on the card that hold a kit: `Melodee/Projects` and the stock app's
   waveform as it plays. The browser plays the pad's region at its level,
   pan and tune, a **Note on** pad only while you hold it, and a pad in a
   mute group stops the others in its group.
+- A sound stops when it can no longer be seen: a pad of another bank or
+  kit, or a sound gone from the list. **Stop** above Sounds (or **Esc**
+  outside a text box) stops everything.
 - Play the pads from the computer's keyboard: **1** to **4** are the top
   row (pads 13 to 16), then **Q** to **R**, **A** to **F**, and **Z** to
   **V** the bottom row (pads 1 to 4). The keys go by their place on the
