@@ -62,6 +62,40 @@ What the official Splice MCP server offers the Kit Manager, tried on
    is worth less than (1). The token stays in the companion's memory or the
    Mac's Keychain, never in the firmware or the browser.
 
+## Built (the Mac companion)
+
+All of it through the official MCP and splice.com's public pages, signed in
+once (`tools/companion/splice_mcp.py`, the refresh token in the Mac's login
+Keychain). Nothing reads Splice's private API, gets past its bot check, or
+unscrambles its previews.
+
+- **Catalog** in Sounds (`splice_catalog.py`, `/companion/splice/catalog`):
+  `describe_a_sound` with the One-shots/Loops filter, its Markdown read into
+  rows (label, type, BPM, key, length, tags); 10 a search, as the tool gives.
+  Sounds one has in the Splice folder are marked ✓ and play from there; a
+  sound got before is free again.
+- **Listen**: splice.com may not be shown inside another page
+  (`X-Frame-Options: SAMEORIGIN`), so its page opens in a small window of its
+  own beside the Kits page, used again for each Listen.
+- **Get** (`/companion/splice/get`): asked first on the page; `download_asset`
+  (one credit the first time), the file kept in `~/Music/Melodee Splice/<label>/`
+  and copied to `Melodee/Samples/Splice/<label>/` on the card. A drop of a
+  catalog sound on a pad gets it the same way. A session may get 20
+  (`--credit-limit`).
+- **Packs** (`/companion/splice/pack`): a catalog sound's public page names
+  its pack and links the pack's page (title, cover); the pack's sounds are
+  gathered with a search per kind ("<title> kick", "<title> snare"…), kept
+  when of the same label and starting with the same file prefix as the sound
+  opened from. Ten searches of ten, so not always the whole pack.
+- **Kit from this pack**: the pack's one-shots planned as for a folder, the
+  credits it costs said first (sounds one has are free), each got and put on
+  its pad.
+- **Pack artwork** for the Mac's packs: see docs/KIT_MANAGER.md; a
+  `cover.jpg`, `.png` or `.webp` in a pack's folder wins.
+
+Splice's pages are read one every three seconds across all of this, and on
+429 the lookups pause.
+
 ## Try it
 
     python3 tools/companion/splice_probe.py --search "punchy 808 kick"

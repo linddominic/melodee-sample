@@ -264,6 +264,23 @@ img.cover { object-fit: cover; padding: 0; background: var(--quiet); }
 .picker-list li.pack-head .name { display: flex; flex-direction: column; min-width: 0; }
 .picker-list li.pack-head .name b { font-size: 15px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
 .picker-list li.pack-head .name small { font-size: 11px; color: var(--mid); }
+/* The Splice catalog: rows with no waveform yet (a cloud), Listen on splice.com and Get. */
+.picker-list li.cat-sound { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; min-height: 0; padding: 4px 8px 4px 12px; cursor: grab; }
+.picker-list li.cat-sound::before { width: 3px; }
+.picker-list .mini.cloud { display: grid; place-items: center; height: 26px; font-size: 14px; color: var(--dim); }
+.picker-list li.cat-sound .name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.picker-list li.cat-sound .name b { font-weight: 500; font-size: 13px; color: var(--sec); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-list li.cat-sound .name small { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-list .listen { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--mid); text-decoration: none; padding: 4px 6px; border-radius: 6px; }
+.picker-list .listen:hover { color: var(--text); background: var(--quiet); }
+.picker-list li.cat-sound { grid-template-columns: 52px minmax(0, 1fr) auto auto auto; }
+.picker-list .pack-btn { padding: 4px 7px; font-size: 10px; color: var(--sec); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
+.picker-list li.pack-head .listen { align-self: flex-start; margin-top: 2px; padding: 2px 0; }
+.picker-list .get { padding: 4px 10px; font-size: 10px; color: var(--bg); background: var(--amber); border: 0; border-radius: 7px; }
+.picker-list li.yours .name small { color: var(--mint); }
+.picker-list li.catalog-hint { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 14px; font-size: 12px; line-height: 1.5; color: var(--mid); background: var(--quiet); }
+.picker-list li.catalog-hint::before { display: none; }
+.picker-list li.catalog-hint b { color: var(--text); font-weight: 500; }
 .kit-from { flex: none; padding: 4px 9px; font-size: 10px; color: var(--bg); background: var(--mint); border: 0; border-radius: 7px; white-space: nowrap; }
 .kit-from[hidden] { display: none; }
 .sound-nav { display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; }

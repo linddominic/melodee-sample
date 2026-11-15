@@ -60,9 +60,12 @@ def results(text):
 
 
 class SpliceCovers:
-    def __init__(self, mcp, files_of=lambda pack: []):
+    def __init__(self, mcp, files_of=lambda pack: [], root=None):
         self.mcp = mcp
         self.files_of = files_of   # the pack's own sound files, by name: found again in the catalog, they name the pack
+        self.root = Path(root) if root else None   # the Splice folder: a cover.jpg/png/webp in a pack's folder wins
+        self.pace = threading.Lock()
+        self.last = 0.0
         self.lock = threading.Lock()
         CACHE.mkdir(parents=True, exist_ok=True)
         self.index_file = CACHE / "index.json"
@@ -78,8 +81,20 @@ class SpliceCovers:
         tmp.write_text(json.dumps(self.index, indent=1))
         tmp.replace(self.index_file)
 
+    def own(self, pack):
+        """A cover one put in the pack's folder oneself (cover.jpg, .png or .webp), or None."""
+        if not self.root or "/" in pack or pack.startswith("."):
+            return None
+        for ext in ("jpg", "jpeg", "png", "webp"):
+            path = self.root / pack / ("cover." + ext)
+            if path.is_file():
+                return path
+        return None
+
     def state(self, pack):
         """"found", "none", "pending", or "signedout"."""
+        if self.own(pack):
+            return "found"
         with self.lock:
             got = self.index.get(pack)
             if got and got.get("state") == "found" and (CACHE / got["file"]).is_file():
@@ -94,6 +109,9 @@ class SpliceCovers:
             return "pending"
 
     def image(self, pack):
+        own = self.own(pack)
+        if own:
+            return own.read_bytes(), {"png": "image/png", "webp": "image/webp"}.get(own.suffix[1:].lower(), "image/jpeg")
         with self.lock:
             got = self.index.get(pack)
         if got and got.get("state") == "found":
@@ -127,7 +145,11 @@ class SpliceCovers:
                 self.save()
 
     def page(self, url):
-        time.sleep(GAP)
+        with self.pace:                     # every lookup, covers and packs alike, one page each GAP
+            wait = self.last + GAP - time.time()
+            if wait > 0:
+                time.sleep(wait)
+            self.last = time.time()
         status, head, body = http(url, headers={"User-Agent": "melodee-kit-manager/0.1 (link preview)"}, timeout=30)
         if status == 429:
             wait = {k.lower(): v for k, v in head.items()}.get("retry-after", "")
@@ -159,6 +181,29 @@ class SpliceCovers:
         name = slug(pack)[:60] + {"image/png": ".png", "image/webp": ".webp"}.get(kind, ".jpg")
         (CACHE / name).write_bytes(data)
         return {"state": "found", "file": name, "type": kind, "title": title, "page": page_url}
+
+    def pack_of(self, link):
+        """The pack a catalog sound's page belongs to: {title, path, cover} (cover kept under the pack's title, so
+        /companion/splice/cover?pack=<title> gives it), cached; None when the page names none."""
+        with self.lock:
+            known = self.index.get("@link " + link)
+        if known:
+            return known
+        got = self.own_pack(self.page(link))
+        if not got:
+            return None
+        title, path = got
+        with self.lock:
+            has = self.index.get(title, {}).get("state") == "found"
+        if not has:
+            done = self.cover(title, title, path)
+            with self.lock:
+                self.index[title] = {**(done or {"state": "none", "why": "the pack page has no image"}), "at": time.time()}
+        result = {"title": title, "path": path, "page": "https://splice.com" + path}
+        with self.lock:
+            self.index["@link " + link] = result
+            self.save()
+        return result
 
     def find(self, pack):
         # First by a sound of the pack's own: the catalog's sound of the same file name is from the same pack, whatever

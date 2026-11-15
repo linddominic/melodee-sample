@@ -110,31 +110,36 @@ class SpliceLibrary:
         return {"splice": self.available(), "root": str(self.root), "packs": packs, "icon": self.icon() is not None}
 
     def import_to_card(self, rel, mpc):
-        """Copies the sound to Melodee/Samples/Splice/<Pack>/ on the card through `mpc` (the MPC's own Files requests:
-        mkdir, list, upload); a copy already there with the same name and size is used again. The card id."""
+        """Copies a sound of the folder to Melodee/Samples/Splice/<Pack>/ on the card (see copy_to_card). The card id."""
         path = self.place(rel)
         if path is None:
             raise LookupError("No such sound in the Splice folder")
-        pack = shortened(rel.split("/")[0] if "/" in rel else "Sounds", PACK_CHARS)
-        name = shortened(path.name, FILE_CHARS)
-        where = ""
-        for part in CARD_DIR + [pack]:
-            status, data = mpc("POST", "/mkdir", {"path": where, "name": part})
-            if status == 200:
-                part = json.loads(data).get("name", part)
-            elif status != 409:
-                raise OSError(json.loads(data or b"{}").get("error", "Could not make a folder on the card"))
-            where = part if not where else where + "/" + part
-        status, data = mpc("GET", "/list", {"path": where})
-        size = path.stat().st_size
+        return copy_to_card(path, rel.split("/")[0] if "/" in rel else "Sounds", mpc)
+
+
+def copy_to_card(path, pack, mpc):
+    """Copies a file on the Mac to Melodee/Samples/Splice/<pack>/ on the card through `mpc` (the MPC's own Files
+    requests: mkdir, list, upload); a copy already there with the same name and size is used again. The card id."""
+    pack = shortened(pack, PACK_CHARS)
+    name = shortened(path.name, FILE_CHARS)
+    where = ""
+    for part in CARD_DIR + [pack]:
+        status, data = mpc("POST", "/mkdir", {"path": where, "name": part})
         if status == 200:
-            stem, ext = os.path.splitext(name)
-            for e in json.loads(data).get("entries", []):
-                n = e.get("name", "")
-                if not e.get("dir") and e.get("size") == size and n.lower().endswith(ext.lower()) and \
-                        (n.lower() == name.lower() or (n.lower().startswith(stem.lower() + " ") and n[len(stem) + 1:-len(ext) or None].isdigit())):
-                    return "sd:%s/%s" % (where, n)
-        status, data = mpc("POST", "/upload", {"path": where, "name": name}, path.read_bytes())
-        if status != 200:
-            raise OSError(json.loads(data or b"{}").get("error", "Could not copy it to the card"))
-        return "sd:%s/%s" % (where, json.loads(data)["name"])
+            part = json.loads(data).get("name", part)
+        elif status != 409:
+            raise OSError(json.loads(data or b"{}").get("error", "Could not make a folder on the card"))
+        where = part if not where else where + "/" + part
+    status, data = mpc("GET", "/list", {"path": where})
+    size = path.stat().st_size
+    if status == 200:
+        stem, ext = os.path.splitext(name)
+        for e in json.loads(data).get("entries", []):
+            n = e.get("name", "")
+            if not e.get("dir") and e.get("size") == size and n.lower().endswith(ext.lower()) and \
+                    (n.lower() == name.lower() or (n.lower().startswith(stem.lower() + " ") and n[len(stem) + 1:-len(ext) or None].isdigit())):
+                return "sd:%s/%s" % (where, n)
+    status, data = mpc("POST", "/upload", {"path": where, "name": name}, path.read_bytes())
+    if status != 200:
+        raise OSError(json.loads(data or b"{}").get("error", "Could not copy it to the card"))
+    return "sd:%s/%s" % (where, json.loads(data)["name"])

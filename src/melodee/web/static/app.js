@@ -524,7 +524,7 @@ function sampleUrl(source, rel) {
   return source === "splice" ? "/companion/splice/sample?path=" + encodeURIComponent(rel)
     : "/api/kits/sample?sample=" + encodeURIComponent(source + ":" + rel);
 }
-const sourceNames = {sd: "SD card", factory: "Factory samples", splice: "Splice"};
+const sourceNames = {sd: "SD card", factory: "Factory samples", splice: "Splice", catalog: "Splice catalog"};
 // A folder's sounds in a few words: "12 kicks · 9 snares · 40 loops".
 const catPlural = {kick: "kicks", snare: "snares", clap: "claps", hat: "hats", cymbal: "cymbals", perc: "perc", bass: "808s · bass",
                    vocal: "vocals", fx: "FX", melodic: "melodic"};
@@ -535,6 +535,41 @@ function summary(items) {
   const top = Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, n]) => `${n} ${catPlural[c]}`);
   if (loops) top.push(`${loops} ${loops === 1 ? "loop" : "loops"}`);
   return top.join(" · ");
+}
+
+// Sixteen pads' worth of one-shots that belong together (each item: {cat, key, nameWords}), by pad 1-16: the drums
+// on the bottom rows as the MPC's factory kits have them, then 808 or bass, cymbal and FX, and melodic and vocal hits
+// in the most common key on top. Each go shuffles, so another go makes another kit. {picks, key}.
+function planKit(shots) {
+  const openHat = i => / (open|oh) /.test(i.nameWords);
+  const keys = {};
+  for (const i of shots) if (i.key && (i.cat === "melodic" || i.cat === "bass" || i.cat === "vocal")) keys[i.key] = (keys[i.key] || 0) + 1;
+  const key = Object.entries(keys).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const pools = {
+    kick: shots.filter(i => i.cat === "kick"), snare: shots.filter(i => i.cat === "snare"), clap: shots.filter(i => i.cat === "clap"),
+    hat: shots.filter(i => i.cat === "hat" && !openHat(i)), open: shots.filter(i => i.cat === "hat" && openHat(i)),
+    perc: shots.filter(i => i.cat === "perc"), cymbal: shots.filter(i => i.cat === "cymbal"), fx: shots.filter(i => i.cat === "fx"),
+    bass: shots.filter(i => i.cat === "bass"), vocal: shots.filter(i => i.cat === "vocal"), melodic: shots.filter(i => i.cat === "melodic"),
+  };
+  for (const [name, pool] of Object.entries(pools)) {
+    for (let n = pool.length - 1; n > 0; n--) { const m = Math.floor(Math.random() * (n + 1)); [pool[n], pool[m]] = [pool[m], pool[n]]; }
+    if (key && ["bass", "melodic", "vocal"].includes(name)) pool.sort((a, b) => (b.key === key) - (a.key === key));
+  }
+  const plan = [["kick"], ["snare", "clap"], ["hat"], ["open", "hat"],
+                ["kick"], ["clap", "snare"], ["perc", "hat"], ["perc", "clap"],
+                ["bass", "kick"], ["snare", "perc"], ["cymbal", "open", "perc"], ["fx", "perc"],
+                ["melodic", "vocal"], ["melodic", "bass"], ["vocal", "melodic", "fx"], ["melodic", "fx", "perc"]];
+  const used = new Set();
+  const take = wants => { for (const w of wants) { const i = pools[w].find(x => !used.has(x)); if (i) { used.add(i); return i; } } return null; };
+  return {picks: plan.map(take), key};
+}
+
+// Listen: splice.com may not be shown inside another page (X-Frame-Options), so its page opens in a small window of its
+// own beside this one, used again for the next Listen.
+function listenOn(link) {
+  const w = 440, h = 760, left = Math.max(0, (window.screenX || 0) + window.outerWidth - w - 24), top = Math.max(0, (window.screenY || 0) + 80);
+  const win = window.open(link, "splice-listen", `popup,width=${w},height=${h},left=${left},top=${top}`);
+  if (win) win.focus();
 }
 
 // A pack's cover where there is no artwork: two of the page's colours and the pack's initials, the same for the same
@@ -1115,6 +1150,12 @@ const kits = {
     if (saving) saving.classList.add("saving");
     try {
       const ask = v => this.post("/api/kits/pad?" + this.q({id: this.kit.id, pad: this.pad, ...v}));
+      if (values.sample && values.sample.startsWith("catalog:")) {
+        const c = (this.catalogSounds || new Map()).get(values.sample.slice(8));
+        const id = c && await this.getCatalog(c);
+        if (!id) { say.className = "say"; say.textContent = ""; const pad = $(`#pad-grid .pad[data-n="${this.pad}"]`); if (pad) pad.classList.remove("saving"); return; }
+        values = {...values, sample: id};
+      }
       if (values.sample && values.sample.startsWith("splice:")) {
         say.textContent = "Copying it from Splice to the card…";
         values = {...values, sample: await this.fromSplice(values.sample)};
@@ -1137,6 +1178,207 @@ const kits = {
       $("#pad-say").textContent = "Saved to the card";
       this.refreshRow();
     } catch (e) { say.className = "say bad"; say.textContent = e.message; if (saving) saving.classList.remove("saving"); }
+  },
+  // ---- Splice's catalog, through the companion's official MCP: 10 sounds a search (the tool has no pages) ----
+  async catalog(words, asked) {
+    const ul = $("#picker-list");
+    $("#sound-cats").innerHTML = "";
+    if (!words && !this.catalogPack) {
+      this.fill([], [], "");
+      ul.innerHTML = "";
+      const li = document.createElement("li");
+      li.className = "catalog-hint";
+      li.innerHTML = "<b>Search Splice's whole catalog</b><span>Describe the sound: <i>dark techno kick</i>, <i>dusty soul chord stab</i>, " +
+        "<i>808 glide in F</i>. Each search shows the 10 best. <b>Listen</b> opens it on splice.com; <b>Get</b> spends one credit " +
+        "(free again later) and puts it on the card. Sounds you have already are marked ✓ and cost nothing.</span>";
+      ul.append(li);
+      return;
+    }
+    if (this.catalogPack) return this.catalogPackView(words, asked);
+    const key = [words, this.type].join("\n");
+    this.catalogFound = this.catalogFound || new Map();
+    let found = this.catalogFound.get(key);
+    if (!found) {
+      ul.innerHTML = "";
+      this.say(ul, "Searching Splice…");
+      try { found = await this.get("/companion/splice/catalog?" + this.q({q: words, type: this.type})); }
+      catch (e) { ul.innerHTML = ""; this.say(ul, e.message); return; }
+      this.catalogFound.set(key, found);
+    }
+    if (this.asked !== asked) return;
+    this.catalogSounds = this.catalogSounds || new Map();
+    const items = found.sounds.map(c => {
+      this.catalogSounds.set(c.uuid, c);
+      const item = soundItem(c.name, -1);
+      if (c.type === "loop" || c.type === "oneshot") item.type = c.type;
+      if (c.bpm) item.bpm = c.bpm;
+      return {item, c};
+    });
+    const counts = {};
+    for (const {item} of items) if (item.cat) counts[item.cat] = (counts[item.cat] || 0) + 1;
+    this.chips(items.map(i => i.item));
+    const shown = items.filter(({item}) => !this.cat || item.cat === this.cat);
+    const note = `${shown.length} of ${found.total.toLocaleString()} on Splice · ${found.gets} of ${found.limit} gets this session`;
+    this.fill([], [], shown.length ? "" : "Nothing fits: try other words", note);
+    const parts = words.split(/\s+/);
+    for (const {item, c} of shown) $("#picker-list").append(this.catalogRow(item, c, parts));
+    this.rows = $$("#picker-list li.audio, #picker-list li.cat-sound");
+    this.watchWaves();
+  },
+  // A catalog sound's pack: its cover, title and label, the sounds of it found, and Kit from this pack.
+  async catalogPackView(words, asked) {
+    const ul = $("#picker-list"), c = this.catalogPack;
+    this.packs = this.packs || new Map();
+    let pack = this.packs.get(c.uuid);
+    if (!pack) {
+      ul.innerHTML = "";
+      this.say(ul, `Opening the pack of ${c.name}: its page, then a search for each kind of sound… (about half a minute)`);
+      try { pack = await this.get("/companion/splice/pack?" + this.q({uuid: c.uuid, name: c.name, label: c.label, link: c.link})); }
+      catch (e) { ul.innerHTML = ""; this.say(ul, e.message); return; }
+      this.packs.set(c.uuid, pack);
+    }
+    if (this.asked !== asked) return;
+    this.crumbs(); // its title, now it is known
+    this.catalogSounds = this.catalogSounds || new Map();
+    const parts = words ? words.split(/\s+/) : [];
+    const items = pack.sounds.map(x => {
+      this.catalogSounds.set(x.uuid, x);
+      const item = soundItem(x.name, -1);
+      if (x.type === "loop" || x.type === "oneshot") item.type = x.type;
+      if (x.bpm) item.bpm = x.bpm;
+      if (x.key) item.key = x.key.replace(/ major$/i, "").replace(/ minor$/i, "m").replace(/^(\w)/, m => m.toUpperCase());
+      return {item, c: x};
+    }).filter(({item, c: x}) => (!this.type || item.type === this.type) && (!parts.length || parts.every(w => x.name.toLowerCase().includes(w) || item.cat === catOf(" " + w + " "))));
+    this.chips(items.map(i => i.item));
+    const shown = items.filter(({item}) => !this.cat || item.cat === this.cat);
+    const owned = pack.sounds.filter(x => x.mine || x.kept).length;
+    this.fill([], [], shown.length ? "" : "Nothing of this pack fits", `${shown.length} of the pack's sounds found · ${owned} yours already`);
+    // the header: the real cover when found, the made one else
+    const head = document.createElement("li");
+    head.className = "pack-head";
+    const cover = pack.cover ? Object.assign(document.createElement("img"), {className: "cover art", alt: "", src: "/companion/splice/cover?" + this.q({pack: pack.title})}) : packCover(pack.title, 52);
+    cover.style.setProperty("--size", "52px");
+    const text = document.createElement("span");
+    text.className = "name";
+    const title = document.createElement("b");
+    title.textContent = pack.title;
+    const about = document.createElement("small");
+    about.textContent = [pack.label, summary(items.map(i => i.item)), pack.sure ? "" : "may hold sounds of other packs of this label"].filter(Boolean).join(" · ");
+    text.append(title, about);
+    if (pack.page) { const a = Object.assign(document.createElement("a"), {className: "listen", href: pack.page, target: "_blank", rel: "noopener", textContent: "On Splice"}); text.append(a); }
+    head.append(cover, text);
+    ul.insertBefore(head, ul.firstChild);
+    for (const {item, c: x} of shown) ul.append(this.catalogRow(item, x, parts));
+    this.rows = $$("#picker-list li.audio, #picker-list li.cat-sound");
+    this.watchWaves();
+  },
+  async openPack(c) {
+    this.remember();
+    this.catalogPack = c;
+    $("#sound-search").value = "";
+    this.cat = "";
+    this.render();
+  },
+  // Kit from this pack: the plan of the pack's one-shots, what it costs (sounds not had yet: one credit each), then
+  // each got and put on its pad.
+  async kitFromPack() {
+    const pack = this.packs && this.packs.get(this.catalogPack.uuid);
+    if (!pack) return;
+    const shots = pack.sounds.filter(x => x.type !== "loop").map(x => {
+      const item = soundItem(x.name, -1);
+      item.c = x;
+      if (x.key) item.key = x.key.replace(/ major$/i, "").replace(/ minor$/i, "m").replace(/^(\w)/, m => m.toUpperCase());
+      return item;
+    });
+    if (!shots.length) { alert("No one-shots of this pack were found to make a kit of"); return; }
+    const {picks, key} = planKit(shots);
+    const cost = items => {
+      const pay = items.filter(i => !i.c.mine && !i.c.kept).length;
+      const had = items.length - pay;
+      return pay ? `${pay} of them ${pay === 1 ? "is" : "are"} new to you: that is ${pay} Splice credit${pay === 1 ? "" : "s"}.` + (had ? ` The other ${had} you have already.` : "")
+        : "You have all of them already: no credits.";
+    };
+    const idOf = async item => {
+      if (item.c.mine) return "splice:" + item.c.mine;
+      const r = await busy.run(() => fetch("/companion/splice/get?" + this.q({uuid: item.c.uuid, name: item.c.name, label: item.c.label}),
+                                           {method: "POST", headers: {"X-Melodee": "1"}, body: ""}));
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "Could not get " + item.c.name);
+      item.c.kept = true;
+      return data.id;
+    };
+    return this.fillKit(pack.title, picks, key, idOf, cost);
+  },
+  // A catalog sound: playable from the Splice folder when one has it (✓), else Listen on splice.com and Get.
+  catalogRow(item, c, words) {
+    if (c.mine) {
+      const li = this.soundRow(soundItem(c.mine, -1), words, "splice");
+      li.classList.add("yours");
+      li.querySelector("small").textContent = `✓ yours · ${c.label} · ` + li.querySelector("small").textContent;
+      return li;
+    }
+    const li = document.createElement("li");
+    li.className = "entry cat-sound";
+    li.style.setProperty("--stripe", item.type === "loop" ? "var(--lilac)" : "var(--mint)");
+    li.draggable = true;
+    li.dataset.id = "catalog:" + c.uuid;
+    li.dataset.url = "";
+    li.title = c.name + (c.tags.length ? "\n" + c.tags.join(", ") : "");
+    const box = document.createElement("span");
+    box.className = "mini cloud";
+    box.textContent = "☁";
+    const name = document.createElement("span");
+    name.className = "name";
+    const title = document.createElement("b");
+    title.append(markWords(c.name.replace(/\.[a-z0-9]{2,4}$/i, ""), words));
+    const meta = document.createElement("small");
+    const key = c.key ? c.key.replace(/ major$/i, "").replace(/ minor$/i, "m").replace(/^(\w)/, m => m.toUpperCase()) : "";
+    meta.textContent = [c.label, c.type === "oneshot" ? "one-shot" : c.type, catLabel[item.cat] || "", c.bpm ? c.bpm + " BPM" : "", key,
+                        c.duration ? c.duration.toFixed(1) + " s" : "", c.kept ? "got before: free" : ""].filter(Boolean).join(" · ");
+    name.append(title, meta);
+    const listen = document.createElement("a");
+    listen.className = "listen"; listen.href = c.link; listen.target = "_blank"; listen.rel = "noopener"; listen.textContent = "Listen";
+    listen.title = "Hear it on splice.com";
+    const get = document.createElement("button");
+    get.type = "button"; get.className = "get"; get.textContent = c.kept ? "Get ✓" : "Get";
+    get.addEventListener("click", async ev => {
+      ev.stopPropagation();
+      const id = await this.getCatalog(c);
+      if (!id) return;
+      const row = this.soundRow(soundItem(id.slice(3), -1), words, "sd");
+      row.classList.add("yours");
+      row.querySelector("small").textContent = `✓ got · ${c.label} · ` + row.querySelector("small").textContent;
+      li.replaceWith(row);
+      this.rows = $$("#picker-list li.audio, #picker-list li.cat-sound");
+      this.watchWaves();
+      this.audition(row.dataset.url);
+    });
+    listen.addEventListener("click", ev => { ev.preventDefault(); ev.stopPropagation(); listenOn(c.link); });
+    const pack = document.createElement("button");
+    pack.type = "button"; pack.className = "pack-btn"; pack.title = "Open its pack"; pack.textContent = "Pack";
+    pack.addEventListener("click", ev => { ev.stopPropagation(); this.openPack(c); });
+    li.append(box, name, listen, get);
+    if (!this.catalogPack) li.insertBefore(pack, get);
+    li.addEventListener("dragstart", ev => {
+      ev.dataTransfer.setData("application/x-melodee-sound", "catalog:" + c.uuid);
+      ev.dataTransfer.setData("text/plain", c.name);
+      ev.dataTransfer.effectAllowed = "copy";
+      document.body.classList.add("dragging-sound");
+    });
+    li.addEventListener("dragend", () => document.body.classList.remove("dragging-sound"));
+    return li;
+  },
+  // A catalog sound got from Splice (asked first: a credit the first time) and copied to the card: its card id.
+  async getCatalog(c) {
+    if (!c.kept && !confirm(`Get "${c.name}" from Splice?\n\nThis spends 1 credit, unless you have downloaded it before. ` +
+                            `It is kept on your Mac (~/Music/Melodee Splice) and copied to the card.`)) return null;
+    const r = await busy.run(() => fetch("/companion/splice/get?" + this.q({uuid: c.uuid, name: c.name, label: c.label}),
+                                         {method: "POST", headers: {"X-Melodee": "1"}, body: ""}));
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(data.error || "Could not get it from Splice"); return null; }
+    c.kept = true;
+    for (const found of (this.catalogFound || new Map()).values()) found.gets = data.gets;
+    return data.id;
   },
   // Splice's real pack artwork in place of the made covers, as the companion finds it (looked up once a pack, through
   // the official Splice MCP and the packs' public pages); asked again while some are still being looked up. Signed
@@ -1198,38 +1440,23 @@ const kits = {
   // common key. On a kit of one's own its empty pads of the bank in view are filled; else a new kit takes the
   // folder's name.
   async kitFrom(folder) {
+    if (this.source === "catalog" && this.catalogPack) return this.kitFromPack();
     const index = await this.sounds(this.source), head = folder.toLowerCase() + "/";
     const shots = index.files.filter(i => i.low.startsWith(head) && i.type !== "loop");
     if (!shots.length) { alert("No one-shots in this folder to make a kit of"); return; }
-    const openHat = i => / (open|oh) /.test(i.nameWords);
-    const keys = {};
-    for (const i of shots) if (i.key && (i.cat === "melodic" || i.cat === "bass" || i.cat === "vocal")) keys[i.key] = (keys[i.key] || 0) + 1;
-    const key = Object.entries(keys).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-    const pools = {
-      kick: shots.filter(i => i.cat === "kick"), snare: shots.filter(i => i.cat === "snare"), clap: shots.filter(i => i.cat === "clap"),
-      hat: shots.filter(i => i.cat === "hat" && !openHat(i)), open: shots.filter(i => i.cat === "hat" && openHat(i)),
-      perc: shots.filter(i => i.cat === "perc"), cymbal: shots.filter(i => i.cat === "cymbal"), fx: shots.filter(i => i.cat === "fx"),
-      bass: shots.filter(i => i.cat === "bass"), vocal: shots.filter(i => i.cat === "vocal"), melodic: shots.filter(i => i.cat === "melodic"),
-    };
-    // In key first, then the rest; each pool shuffled, so another go makes another kit.
-    for (const [name, pool] of Object.entries(pools)) {
-      for (let n = pool.length - 1; n > 0; n--) { const m = Math.floor(Math.random() * (n + 1)); [pool[n], pool[m]] = [pool[m], pool[n]]; }
-      if (key && ["bass", "melodic", "vocal"].includes(name)) pool.sort((a, b) => (b.key === key) - (a.key === key));
-    }
-    // Pad by pad (1-16), what it wants, best first.
-    const plan = [["kick"], ["snare", "clap"], ["hat"], ["open", "hat"],
-                  ["kick"], ["clap", "snare"], ["perc", "hat"], ["perc", "clap"],
-                  ["bass", "kick"], ["snare", "perc"], ["cymbal", "open", "perc"], ["fx", "perc"],
-                  ["melodic", "vocal"], ["melodic", "bass"], ["vocal", "melodic", "fx"], ["melodic", "fx", "perc"]];
-    const used = new Set(), take = wants => { for (const w of wants) { const i = pools[w].find(x => !used.has(x.rel)); if (i) { used.add(i.rel); return i; } } return null; };
-    const picks = plan.map(take);
-    const name = folder.split("/").pop();
+    const {picks, key} = planKit(shots);
+    return this.fillKit(folder.split("/").pop(), picks, key, item => this.source + ":" + item.rel, () => "");
+  },
+  // Picks (16, by pad) onto a kit: one's own kit's empty pads of the bank in view, else a new kit named `name`.
+  // `idOf(item)` is what goes on the pad (or a promise of it); `cost(fill)` words what it will cost, if anything.
+  async fillKit(name, picks, key, idOf, cost) {
     let target = this.kit && !this.kit.readOnly ? this.kit : null;
     const bank = target ? this.bank : 0, empty = n => !target || !this.padOf(bank * 16 + n);
     const fill = picks.map((item, n) => [bank * 16 + n, item]).filter(([n, item]) => item && empty(n % 16));
     if (!fill.length) { alert(target ? "This bank's pads are all taken: pick an empty bank, or a kit that is not yours to make a new one" : "Nothing to put on the pads"); return; }
-    const what = `${fill.length} sounds from "${name}"${key ? ` (melodic in ${key})` : ""}`;
-    if (!confirm(target ? `Fill ${fill.length} empty pads of bank ${String.fromCharCode(65 + bank)} in "${target.name}" with ${what}?` : `Make a new kit "${name.slice(0, 23)}" of ${what}?`)) return;
+    const what = `${fill.length} sounds from "${name}"${key ? ` (melodic in ${key})` : ""}`, price = cost(fill.map(f => f[1]));
+    if (!confirm((target ? `Fill ${fill.length} empty pads of bank ${String.fromCharCode(65 + bank)} in "${target.name}" with ${what}?` : `Make a new kit "${name.slice(0, 23)}" of ${what}?`)
+                 + (price ? "\n\n" + price : ""))) return;
     if (!target) {
       try { this.kit = await this.post("/api/kits/new?" + this.q({name: name.slice(0, 23).trim() || "Kit"})); this.after(); }
       catch (e) { alert(e.message); return; }
@@ -1241,7 +1468,9 @@ const kits = {
       this.drawKit();
       $("#pad-say").className = "say";
       $("#pad-say").textContent = `Adding ${k + 1} of ${fill.length}: ${item.name}`;
-      await this.edit({sample: this.source + ":" + item.rel});
+      let id;
+      try { id = await idOf(item); } catch (e) { $("#pad-say").className = "say bad"; $("#pad-say").textContent = e.message; return; }
+      if (id) await this.edit({sample: id});
     }
     if (say) { $("#pad-say").className = "say ok"; $("#pad-say").textContent = `${fill.length} sounds from ${name} on the pads`; }
   },
@@ -1287,13 +1516,14 @@ const kits = {
   remember() {
     this.past = this.past || [];
     this.past.push({folder: this.folder, words: $("#sound-search").value, type: this.type, cat: this.cat,
-                    scroll: $("#picker-list").scrollTop, sel: this.sel});
+                    scroll: $("#picker-list").scrollTop, sel: this.sel, pack: this.catalogPack, source: this.source});
     if (this.past.length > 50) this.past.shift();
   },
   async back() {
     const was = this.past && this.past.pop();
     if (!was) return;
     this.folder = was.folder;
+    this.catalogPack = was.pack || null;
     $("#sound-search").value = was.words;
     this.type = was.type;
     this.cat = was.cat;
@@ -1315,8 +1545,21 @@ const kits = {
       return a;
     };
     nav.append(crumb(sourceNames[this.source] || this.source, ""));
+    if (this.source === "catalog" && this.catalogPack) {
+      const s = document.createElement("span"); s.className = "sep"; s.textContent = "/";
+      const here = document.createElement("a"); here.href = "#"; here.className = "here";
+      here.textContent = (this.packs && this.packs.get(this.catalogPack.uuid)?.title) || "Pack";
+      here.addEventListener("click", e => e.preventDefault());
+      nav.append(s, here);
+      nav.firstChild.addEventListener("click", () => { this.catalogPack = null; }, {capture: true});
+    }
     const make = $("#kit-from");
-    if (make) { make.hidden = !this.folder; make.title = this.folder ? `Make a kit of sounds that fit together, from ${parts[parts.length - 1]}` : ""; }
+    if (make) {
+      const pack = this.source === "catalog" && this.catalogPack;
+      make.hidden = !this.folder && !pack;
+      make.textContent = pack ? "Kit from this pack" : "Kit from this folder";
+      make.title = pack ? "Make a kit of this pack's sounds (asks first: new sounds cost credits)" : this.folder ? `Make a kit of sounds that fit together, from ${parts[parts.length - 1]}` : "";
+    }
     const fold = parts.length > 3 && !this.crumbsOpen ? parts.length - 2 : 0; // folders folded into "…"
     if (fold) {
       const more = document.createElement("button");
@@ -1341,6 +1584,7 @@ const kits = {
     this.asked = asked;
     this.crumbs();
     this.drawTypes();
+    if (source === "catalog") return this.catalog(words, asked);
     if (!this.filtering()) {
       let data;
       try {
@@ -1482,8 +1726,8 @@ const kits = {
     if (this.source === "splice") this.spliceArt();
   },
   // One sound: its waveform (drawn when it scrolls into view), its name, and one line of what it is.
-  soundRow(item, words = []) {
-    const id = this.source + ":" + item.rel, url = sampleUrl(this.source, item.rel);
+  soundRow(item, words = [], source = this.source) {
+    const id = source + ":" + item.rel, url = sampleUrl(source, item.rel);
     const li = document.createElement("li");
     li.className = "entry audio" + (this.playing === url ? " playing" : "");
     li.style.setProperty("--stripe", item.type === "loop" ? "var(--lilac)" : "var(--mint)");
@@ -1699,13 +1943,15 @@ const kits = {
       this.source = b.dataset.source;
       $$("#sound-source .seg").forEach(x => x.setAttribute("aria-pressed", x === b));
       this.cat = "";
+      this.catalogPack = null;
       this.past = [];
       this.browse("", false);
     }));
     $("#sound-back").addEventListener("click", () => this.back());
     $$("#sound-types .seg").forEach(b => b.addEventListener("click", () => { this.type = b.dataset.type; this.render(); }));
     let typing = 0;
-    $("#sound-search").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => this.render(), 120); });
+    $("#sound-search").addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => this.render(), this.source === "catalog" ? 800 : 120); });
+    $("#sound-search").addEventListener("keydown", e => { if (e.key === "Enter" && this.source === "catalog") { clearTimeout(typing); this.render(); } });
     $("#sounds").addEventListener("keydown", e => this.soundKey(e));
     $("#stop-all").addEventListener("click", () => this.stopAll());
     $("#kit-from").addEventListener("click", () => this.kitFrom(this.folder));
@@ -1721,6 +1967,11 @@ const kits = {
         b.hidden = false;
         b.title = `${hello.packs} packs in ${hello.root}`;
         if (hello.icon) { const img = document.createElement("img"); img.src = "/companion/splice/icon"; img.alt = ""; b.prepend(img); }
+        const cat = $('#sound-source .seg[data-source="catalog"]');
+        if (cat && hello.signedIn) {
+          cat.hidden = false;
+          if (hello.icon) { const img = document.createElement("img"); img.src = "/companion/splice/icon"; img.alt = ""; cat.prepend(img); }
+        }
       }
     }).catch(() => {});
     this.browse("");
