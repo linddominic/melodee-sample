@@ -302,6 +302,16 @@ None of the following has been tried on an MPC Sample:
 - Not tested in Safari's or Firefox's AIFF/FLAC support; the browser says
   when it cannot play a file.
 
+### Working on the page without firmware
+
+`python3 tools/companion/companion.py` (the start of the Mac companion,
+Milestone 3) serves the page's files from `src/melodee/web/static` and passes
+every other request, writes too, to the MPC at `melodee.local`. Open
+http://localhost:8800/kits: a change to the page is a reload away, with the
+MPC's own kits and sounds. Firmware is built only for a change on the MPC's
+side (`web/kit_store.cpp`), and to put the page's latest into the page the
+MPC carries for use without the Mac.
+
 ### Try it
 
 1. Build and install as usual (`./build.sh`, then `python3 device.py start`
