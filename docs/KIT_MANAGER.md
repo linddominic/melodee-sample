@@ -5,7 +5,8 @@ the card, audition their samples, and make and edit kits of one's own that
 the MPC's existing **Project → Load kit** loads. This note records what the
 code does today (read from the source, not from a device), what is unknown,
 and the approach the Kit Manager takes. Splice (Milestones 3 and 4) is out of
-scope here.
+scope here. The full plan, Milestones 0–4, is
+[KIT_MANAGER_PLAN.md](KIT_MANAGER_PLAN.md).
 
 Melodee is the work of Kerem Kiliç (Ellic Studio); this feature is built in a
 fork on top of it.
