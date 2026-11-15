@@ -181,7 +181,9 @@ std::string file_of(const SampleRef& ref) {
     std::string path = ref.path, file, which;
     return split_program_pad(path, file, which) ? file : path;
 }
-bool plain_file(const SampleRef& ref) { return std::strchr(ref.path, '#') == nullptr && !ref.instrument(); }
+// A file the sampler plays as it is. A '#' marks a pad of a program or project ("<file>.xpj#1.2") only after such a
+// file's name, as SampleRef::instrument() reads it: a folder or file named with a '#' ("SKU#SM-1041/Kick.wav") is plain.
+bool plain_file(const SampleRef& ref) { return !ref.instrument(); }
 bool present(const SampleRef& ref) {
     std::error_code e;
     return fs::exists(file_of(ref), e);

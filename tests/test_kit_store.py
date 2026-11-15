@@ -257,6 +257,17 @@ class KitStoreTests(unittest.TestCase):
         self.assertEqual(self.run_store("sounds", source="elsewhere")[0], 400)
         self.assertEqual(self.run_store("sounds", card="-", source="sd")[0], 409)
 
+    def test_sample_with_hash_in_its_path_plays(self):
+        # A sample pack's folder named with a '#' is a plain file, not a pad of a program: it previews and plays.
+        folder = self.card / "Samples/SKU#SM-1041 Piano/one-shots"
+        folder.mkdir(parents=True)
+        (folder / "Stab #1.wav").write_bytes(wav(44100))
+        made = self.ok("create", name="Hash")
+        kit = self.ok("pad", id=made["id"], pad=0, sample="sd:Samples/SKU#SM-1041 Piano/one-shots/Stab #1.wav")
+        layer = self.pads(kit)["A01"]["layers"][0]
+        self.assertEqual((layer["kind"], layer["preview"], layer["missing"]), ("file", True, False))
+        self.assertTrue(self.ok("audio", id=made["id"], pad=0, layer=0)["file"].endswith("/Stab #1.wav"))
+
     def test_duplicate_custom_kit(self):
         made = self.ok("create", name="Mine")
         self.ok("pad", id=made["id"], pad=0, sample="sd:Samples/Drums/Hit 00.wav")
