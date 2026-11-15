@@ -564,13 +564,12 @@ function planKit(shots) {
   return {picks: plan.map(take), key};
 }
 
-// Listen: splice.com may not be shown inside another page (X-Frame-Options), so its page opens in a small window of its
-// own beside this one, used again for the next Listen. With the Melodee Listen extension (tools/companion/
-// listen-extension) that window shows only the sound's waveform and Play, and plays at once; without it, the whole page.
+// Listen: splice.com may not be shown inside another page (X-Frame-Options), so its page opens in a window of its own
+// beside this one, used again for the next Listen; Play is pressed there.
 let listening = null;
 function listenOn(link) {
-  const w = 460, h = 250, left = Math.max(0, (window.screenX || 0) + window.outerWidth - w - 24), top = Math.max(0, (window.screenY || 0) + 80);
-  listening = window.open(link + "#melodee-listen", "splice-listen", `popup,width=${w},height=${h},left=${left},top=${top}`);
+  const w = 520, h = 720, left = Math.max(0, (window.screenX || 0) + window.outerWidth - w - 24), top = Math.max(0, (window.screenY || 0) + 80);
+  listening = window.open(link, "splice-listen", `popup,width=${w},height=${h},left=${left},top=${top}`);
   if (listening) listening.focus();
 }
 function stopListening() {
