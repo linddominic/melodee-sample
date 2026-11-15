@@ -1079,7 +1079,17 @@ const kits = {
     const saving = $(`#pad-grid .pad[data-n="${this.pad}"]`);
     if (saving) saving.classList.add("saving");
     try {
-      this.kit = await this.post("/api/kits/pad?" + this.q({id: this.kit.id, pad: this.pad, ...values}));
+      const ask = v => this.post("/api/kits/pad?" + this.q({id: this.kit.id, pad: this.pad, ...v}));
+      let kit;
+      try { kit = await ask(values); }
+      catch (e) {
+        // A kit holds each sample's whole path on the card in 160 bytes (as the sampler does): a sample deep in a
+        // pack's folders is copied to a short place first, and the copy goes on the pad.
+        if (!values.sample || !/too long/i.test(e.message)) throw e;
+        say.textContent = "Its path is too long for a kit: copying it to Melodee/Samples/Kits…";
+        kit = await ask({...values, sample: await this.shortCopy(values.sample)});
+      }
+      this.kit = kit;
       sound.forget("/api/kits/audio?" + this.q({id: this.kit.id}) + "&");
       const keep = this.folder;
       this.drawKit();
@@ -1088,6 +1098,30 @@ const kits = {
       $("#pad-say").textContent = "Saved to the card";
       this.refreshRow();
     } catch (e) { say.className = "say bad"; say.textContent = e.message; if (saving) saving.classList.remove("saving"); }
+  },
+  // A copy of a sample in Melodee/Samples/Kits on the card, through the Files tab's own requests; one already there
+  // with the same name and size is used again. Its id.
+  async shortCopy(id) {
+    const dir = "Melodee/Samples/Kits", file = id.slice(id.lastIndexOf("/") + 1);
+    const dot = file.lastIndexOf("."), ext = dot > 0 ? file.slice(dot) : "", stem = dot > 0 ? file.slice(0, dot) : file;
+    const name = file.length > 60 ? stem.slice(0, 60 - ext.length).trim() + ext : file;
+    return busy.run(async () => {
+      for (const [path, folder] of [["Melodee", "Samples"], ["Melodee/Samples", "Kits"]]) {
+        const r = await fetch("/mkdir?" + this.q({path, name: folder}), {method: "POST", headers: {"X-Melodee": "1"}, body: ""});
+        if (!r.ok && r.status !== 409) throw new Error((await r.json().catch(() => ({}))).error || "Could not make " + dir);
+      }
+      const got = await fetch("/api/kits/sample?" + this.q({sample: id}), {cache: "no-store"});
+      if (!got.ok) throw new Error((await got.json().catch(() => ({}))).error || "Could not read the sample");
+      const bytes = await got.arrayBuffer();
+      const there = await this.get("/list?" + this.q({path: dir}), true);
+      const same = new RegExp("^" + name.slice(0, name.length - ext.length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "( \\d+)?" + ext.replace(".", "\\.") + "$", "i");
+      const copy = (there.entries || []).find(e => !e.dir && e.size === bytes.byteLength && same.test(e.name));
+      if (copy) return "sd:" + dir + "/" + copy.name;
+      const up = await fetch("/upload?" + this.q({path: dir, name}), {method: "POST", headers: {"X-Melodee": "1"}, body: bytes});
+      const data = await up.json().catch(() => ({}));
+      if (!up.ok) throw new Error(data.error || "Could not copy it to the card");
+      return "sd:" + dir + "/" + data.name;
+    });
   },
   refreshRow() {
     const i = this.list.findIndex(x => x.id === this.kit.id);

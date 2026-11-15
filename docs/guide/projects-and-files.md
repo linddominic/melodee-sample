@@ -196,6 +196,12 @@ on the card that hold a kit: `Melodee/Projects` and the stock app's
   **Clear pad**. Each change is saved to the card at once. **Rename** and
   **Delete** work on your own kits.
 
+A kit keeps each sample's whole path on the card, and has room for about
+150 characters of it. A sample deeper in a pack's folders than that is
+copied to `Melodee/Samples/Kits` on the card when you put it on a pad, and
+the pad plays the copy; putting the same sample on another pad uses the
+same copy.
+
 Your kits are saved in `Melodee/Projects/Kits` on the card. To play one,
 open the project list on the MPC (**SHIFT** + **Pad 16**, **B2**), open
 the **Kits** folder, push the encoder on the kit and pick **Load kit**.
