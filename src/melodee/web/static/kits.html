@@ -1,0 +1,77 @@
+<div class="busy" id="busy" role="progressbar" aria-label="Waiting for the MPC" hidden></div>
+<div class="kits" id="kits">
+  <section class="kit-side" aria-label="Kits">
+    <div class="kit-bar">
+      <input type="search" id="kit-search" placeholder="Search kits" aria-label="Search kits">
+      <button type="button" id="kit-new">New kit</button>
+    </div>
+    <div class="kit-filter" role="group" aria-label="Show">
+      <button type="button" class="seg" data-show="all" aria-pressed="true">All</button>
+      <button type="button" class="seg" data-show="factory" aria-pressed="false">Factory</button>
+      <button type="button" class="seg" data-show="mine" aria-pressed="false">My kits</button>
+      <button type="button" class="seg" data-show="sd" aria-pressed="false">SD card</button>
+    </div>
+    <p class="kit-progress" id="kit-progress" role="status" hidden></p>
+    <ul class="lanes kit-list" id="kit-list" aria-label="Kits"></ul>
+  </section>
+  <section class="kit-main" id="kit-main" aria-label="Kit">
+    <div class="kit-empty" id="kit-none">Pick a kit, or make a new one. Kits you make are saved to
+      <code>Melodee/Projects/Kits</code> on the card: load one on the MPC with <b>Project</b> → <b>Load kit</b>.</div>
+    <div class="kit-open" id="kit-open" hidden>
+      <header class="kit-head">
+        <div>
+          <p class="label" id="kit-source"></p>
+          <h1 id="kit-name"></h1>
+          <p class="kit-sub" id="kit-sub"></p>
+        </div>
+        <div class="kit-acts">
+          <button type="button" class="quiet" id="kit-dup">Duplicate</button>
+          <button type="button" class="quiet" id="kit-rename">Rename</button>
+          <button type="button" class="quiet danger" id="kit-delete">Delete</button>
+        </div>
+      </header>
+      <ul class="kit-warn" id="kit-warn"></ul>
+      <div class="kit-stage">
+        <div class="kit-pads">
+          <div class="banks" id="banks" role="group" aria-label="Bank"></div>
+          <div class="pad-grid" id="pad-grid" aria-label="Pads"></div>
+          <p class="pad-keys">Keys <kbd>1</kbd>–<kbd>4</kbd> play the top row, <kbd>Z</kbd>–<kbd>V</kbd> the bottom. Drop a sound on a pad to put it there.</p>
+        </div>
+        <div class="pad-panel" id="pad-panel">
+          <header class="pad-head">
+            <div><p class="label" id="pad-label"></p><h2 id="pad-name"></h2></div>
+            <button type="button" class="quiet danger" id="pad-clear">Clear pad</button>
+          </header>
+          <ul class="lanes layers" id="pad-layers"></ul>
+          <div class="pad-params" id="pad-params"></div>
+          <p class="say" id="pad-say"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="sounds" id="sounds" aria-label="Sounds">
+    <div class="sounds-bar">
+      <p class="label">Sounds</p>
+      <button type="button" class="stop-all" id="stop-all" title="Stop every sound (Esc)" disabled><span aria-hidden="true">■</span> Stop</button>
+      <div class="kit-filter" role="group" aria-label="Sounds from" id="sound-source">
+        <button type="button" class="seg" data-source="sd" aria-pressed="true">SD card</button>
+        <button type="button" class="seg" data-source="factory" aria-pressed="false">Factory</button>
+        <button type="button" class="seg" data-source="splice" aria-pressed="false" hidden>Splice</button>
+      </div>
+    </div>
+    <input type="search" id="sound-search" placeholder="Search sounds: kick, hat 808, loop 120…" aria-label="Search sounds">
+    <div class="kit-filter" role="group" aria-label="Type" id="sound-types">
+      <button type="button" class="seg" data-type="" aria-pressed="true">All</button>
+      <button type="button" class="seg" data-type="oneshot" aria-pressed="false">One-shots</button>
+      <button type="button" class="seg" data-type="loop" aria-pressed="false">Loops</button>
+    </div>
+    <div class="sound-cats" id="sound-cats" role="group" aria-label="Category"></div>
+    <div class="sound-nav">
+      <button type="button" class="back-btn" id="sound-back" title="Back (Backspace in the list)" aria-label="Back" disabled>‹</button>
+      <nav class="crumbs" id="picker-crumbs" aria-label="Folder"></nav>
+      <button type="button" class="kit-from" id="kit-from" hidden>Kit from this folder</button>
+    </div>
+    <ul class="lanes picker-list" id="picker-list" tabindex="0" aria-label="Sounds: arrow keys to step through, Enter to assign"></ul>
+    <p class="sounds-hint" id="sounds-hint"></p>
+  </section>
+</div>
