@@ -29,6 +29,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from splice_library import TYPES as AUDIO_TYPES, SpliceLibrary, default_root  # noqa: E402
+from splice_mcp import SpliceMcp  # noqa: E402
+from splice_covers import SpliceCovers  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "src/melodee/web/static"
@@ -52,6 +54,8 @@ class Companion(http.server.BaseHTTPRequestHandler):
     mpc = "melodee.local"
     address = "melodee.local" # looked up once: a .local name can take seconds to look up each time
     splice = None
+    mcp = None      # the official Splice MCP (splice_mcp.py): sign-in kept in the Keychain
+    covers = None   # pack artwork found through it (splice_covers.py)
 
     def reply(self, status, ctype, body, headers=()):
         self.send_response(status)
@@ -62,7 +66,10 @@ class Companion(http.server.BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass # the browser stopped waiting (a page moved on): nothing to tell it
 
     def local(self):
         """The page's own files, from the repository."""
@@ -99,12 +106,46 @@ class Companion(http.server.BaseHTTPRequestHandler):
         query = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
         lib = self.splice
         if url.path == "/companion/hello" and self.command in ("GET", "HEAD"):
-            return self.json_reply(200, {"companion": True, **(lib.hello() if lib else {"splice": False})})
+            signed = self.mcp.signed_in() if self.mcp else False
+            return self.json_reply(200, {"companion": True, "signedIn": signed, **(lib.hello() if lib else {"splice": False})})
+        # Signing in to Splice: the browser goes to Splice and comes back here.
+        if url.path == "/companion/splice/login" and self.command == "GET":
+            try:
+                where = self.mcp.login_url()
+            except OSError as e:
+                return self.json_reply(502, {"error": str(e)})
+            self.send_response(302)
+            self.send_header("Location", where)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        if url.path == "/companion/splice/callback" and self.command == "GET":
+            try:
+                self.mcp.finish(query)
+                words, ok = "Signed in to Splice. You can close this tab.", True
+            except (PermissionError, OSError) as e:
+                words, ok = "Splice sign-in failed: %s" % e, False
+            body = ("<!doctype html><meta charset=utf-8><title>Splice</title><body style='font:16px system-ui;padding:40px;"
+                    "background:#17141F;color:#eee'><p>%s</p><script>%s</script>" % (html.escape(words),
+                    "window.opener&&window.opener.postMessage('splice-signed-in','*');setTimeout(()=>window.close(),800)" if ok else "")).encode()
+            return self.reply(200 if ok else 400, "text/html; charset=utf-8", body)
+        if url.path == "/companion/splice/logout" and self.command == "POST":
+            if "X-Melodee" not in self.headers:
+                return self.json_reply(403, {"error": "Not from Melodee's page"})
+            self.mcp.sign_out()
+            return self.json_reply(200, {})
         if not lib or not lib.available():
             return self.json_reply(404, {"error": "No Splice folder on this Mac"})
         if url.path == "/companion/splice/icon" and self.command in ("GET", "HEAD"):
             png = lib.icon()
             return self.reply(200, "image/png", png) if png else self.json_reply(404, {"error": "No Splice app here"})
+        # Pack artwork: the states of the packs asked for (looking up those not known yet), and a found cover.
+        if url.path == "/companion/splice/covers" and self.command in ("GET", "HEAD"):
+            packs = [p for p in query.get("packs", "").split("\n") if p][:300]
+            return self.json_reply(200, {p: self.covers.state(p) for p in packs})
+        if url.path == "/companion/splice/cover" and self.command in ("GET", "HEAD"):
+            data, kind = self.covers.image(query.get("pack", ""))
+            return self.reply(200, kind, data) if data else self.json_reply(404, {"error": "No cover"})
         if url.path == "/companion/splice/sounds" and self.command in ("GET", "HEAD"):
             return self.json_reply(200, lib.sounds())
         if url.path == "/companion/splice/sample" and self.command in ("GET", "HEAD"):
@@ -168,6 +209,10 @@ def main():
     args = parser.parse_args()
     Companion.mpc = args.mpc
     Companion.splice = SpliceLibrary(args.splice)
+    Companion.mcp = SpliceMcp("http://localhost:%d/companion/splice/callback" % args.port)
+    def files_of(pack):
+        return [f.rsplit("/", 1)[-1] for f in Companion.splice.sounds()["files"] if f.startswith(pack + "/")]
+    Companion.covers = SpliceCovers(Companion.mcp, files_of)
     try:
         Companion.address = socket.gethostbyname(args.mpc)
     except OSError:
@@ -176,6 +221,7 @@ def main():
     print("Melodee companion: http://localhost:%d/kits  (page from %s, data from the MPC at %s, %s)" % (args.port, STATIC, args.mpc, Companion.address))
     hello = Companion.splice.hello()
     print("Splice: %s" % ("%d packs in %s" % (hello["packs"], hello["root"]) if hello["splice"] else "no folder at %s (--splice)" % hello["root"]))
+    print("Splice MCP: %s" % ("signed in (Keychain)" if Companion.mcp.signed_in() else "not signed in: Sign in on the Kits page's Splice source"))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

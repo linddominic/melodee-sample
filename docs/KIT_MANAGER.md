@@ -317,6 +317,21 @@ from one folder or pack: the drums on the bottom rows, then 808 or bass,
 cymbal and FX, and melodic and vocal hits in the folder's most common key on
 the top row; on one's own kit only the empty pads of the bank in view.
 
+**Pack artwork** (`splice_covers.py`): signed in to the official Splice MCP
+(`splice_mcp.py`: OAuth with dynamic registration and PKCE, the browser login
+coming back to `/companion/splice/callback`, the refresh token in the login
+Keychain as "Melodee companion: Splice MCP"), the companion searches the
+catalog for one of the pack's own files by name; the catalog sound of the
+same file name has a public splice.com page that names its pack and links
+the pack's page, whose `og:image` is the cover. Failing that, a sound whose
+pack's title has the folder's words. Pages are fetched one at a time, three
+seconds apart, under the companion's own name; on 429 the lookup pauses
+(Retry-After, else a minute doubling to fifteen) and the pack waits its turn
+again. Found and missed packs are kept in
+`~/Library/Caches/Melodee/splice-covers` (a miss is tried again after a
+week). The page swaps the made cover for the real one, pulses the covers
+still looked up, and says how far it is.
+
 `/companion/...` answers only to `localhost` and `127.0.0.1` (no DNS
 rebinding); the import needs `X-Melodee`; only audio files under the Splice
 folder are read, and nothing is written on the Mac.

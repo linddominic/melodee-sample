@@ -547,6 +547,7 @@ function packCover(name, size) {
   const initials = (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || "?").slice(0, 2)).toUpperCase();
   const el = document.createElement("span");
   el.className = "cover";
+  el.dataset.pack = name;
   el.style.cssText = `--a: var(${a}); --b: var(${b}); --turn: ${h % 360}deg; --size: ${size}px`;
   el.textContent = initials;
   el.setAttribute("aria-hidden", "true");
@@ -1137,6 +1138,54 @@ const kits = {
       this.refreshRow();
     } catch (e) { say.className = "say bad"; say.textContent = e.message; if (saving) saving.classList.remove("saving"); }
   },
+  // Splice's real pack artwork in place of the made covers, as the companion finds it (looked up once a pack, through
+  // the official Splice MCP and the packs' public pages); asked again while some are still being looked up. Signed
+  // out: a row to sign in, at the top of the packs.
+  async spliceArt() {
+    const ul = $("#picker-list"), asked = this.asked;
+    clearTimeout(this.artTimer);
+    const covers = $$("#picker-list .cover[data-pack]");
+    if (!covers.length) return;
+    // The companion says per pack: found, pending (being looked up), none, or signedout. The login window cannot
+    // tell this page it is done (Splice's page cuts it off), so this asks again while anything waits.
+    let states;
+    try { states = await this.get("/companion/splice/covers?" + this.q({packs: [...new Set(covers.map(c => c.dataset.pack))].join("\n")}), true); }
+    catch { return; }
+    if (this.asked !== asked) return;
+    const waiting = Object.values(states), signedOut = waiting.includes("signedout");
+    let row = ul.querySelector(".sign-in");
+    if (signedOut && !row && !this.folder) {
+      row = document.createElement("li");
+      row.className = "sign-in";
+      const words = document.createElement("span");
+      words.textContent = "Sign in to Splice to show your packs' artwork";
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = "Sign in";
+      b.addEventListener("click", () => window.open("/companion/splice/login", "splice-login", "width=520,height=720"));
+      row.append(words, b);
+      ul.prepend(row);
+    } else if (!signedOut && row) row.remove();
+    // How the lookup goes, at the top of the packs; covers still looked up pulse.
+    const counts = {found: 0, pending: 0, none: 0};
+    for (const v of waiting) if (v in counts) counts[v]++;
+    let status = ul.querySelector(".art-status");
+    if (!this.folder && !signedOut && counts.pending) {
+      if (!status) { status = document.createElement("li"); status.className = "art-status"; status.setAttribute("role", "status"); ul.prepend(status); }
+      status.textContent = `Finding pack artwork on Splice… ${counts.found} found · ${counts.pending} to go`;
+    } else if (status) status.remove();
+    for (const c of $$("#picker-list .cover[data-pack]")) c.classList.toggle("looking", states[c.dataset.pack] === "pending");
+    for (const c of $$("#picker-list .cover[data-pack]")) {
+      if (states[c.dataset.pack] !== "found") continue;
+      const img = document.createElement("img");
+      img.className = "cover art";
+      img.style.cssText = c.style.cssText;
+      img.alt = "";
+      img.src = "/companion/splice/cover?" + this.q({pack: c.dataset.pack});
+      img.onload = () => c.replaceWith(img);
+      c.removeAttribute("data-pack"); // asked for once
+    }
+    if (waiting.includes("pending") || signedOut) this.artTimer = setTimeout(() => { if (this.asked === asked) this.spliceArt(); }, 4000);
+  },
   // A Splice sound copied by the Mac companion to Melodee/Samples/Splice/<Pack> on the card (once): its card id.
   async fromSplice(id) {
     const r = await busy.run(() => fetch("/companion/splice/import?" + this.q({path: id.slice(7)}), {method: "POST", headers: {"X-Melodee": "1"}, body: ""}));
@@ -1430,6 +1479,7 @@ const kits = {
     }
     this.watchWaves();
     this.stopHidden(); // the sound playing, if it is no longer listed
+    if (this.source === "splice") this.spliceArt();
   },
   // One sound: its waveform (drawn when it scrolls into view), its name, and one line of what it is.
   soundRow(item, words = []) {
@@ -1659,8 +1709,14 @@ const kits = {
     $("#sounds").addEventListener("keydown", e => this.soundKey(e));
     $("#stop-all").addEventListener("click", () => this.stopAll());
     $("#kit-from").addEventListener("click", () => this.kitFrom(this.folder));
+    window.addEventListener("message", async e => {
+      if (e.origin !== location.origin || e.data !== "splice-signed-in") return;
+      try { this.companion = await this.get("/companion/hello", true); } catch { return; }
+      if (this.source === "splice") this.render();
+    });
     fetch("/companion/hello", {cache: "no-store"}).then(r => r.ok ? r.json() : null).then(hello => {
       const b = $('#sound-source .seg[data-source="splice"]');
+      this.companion = hello;
       if (b && hello && hello.splice) {
         b.hidden = false;
         b.title = `${hello.packs} packs in ${hello.root}`;
