@@ -188,6 +188,17 @@ on the card that hold a kit: `Melodee/Projects` and the stock app's
 - Click a sound to hear it. With the list or the search box in use, **↑**
   and **↓** step through the sounds and play each, **Enter** puts the one
   picked on the pad picked, and **Esc** clears the search.
+- With the Kits page opened through the Mac companion
+  (`python3 tools/companion/companion.py`, then http://localhost:8800/kits),
+  **Splice** in Sounds lists the packs the Splice app has downloaded to the
+  Mac. A Splice sound put on a pad is copied to `Melodee/Samples/Splice` on
+  the card first, so the kit plays without the Mac.
+- **Kit from this folder** (in any folder or pack) puts sounds that belong
+  together on the pads: kicks, snares, hats, claps and percussion on the
+  bottom rows, then 808 or bass, cymbal and FX, and melodic and vocal hits in
+  the folder's most common key on the top row. In a kit of your own it fills
+  the empty pads of the bank in view; otherwise it makes a new kit named
+  after the folder. Each go picks again.
 - Drag a sound onto a pad to put it there. In a kit of your own you can
   also pick a pad and press **Assign** on a sound. Dropping a sound on a
   factory kit, or another kit that is read only, asks for a name and makes

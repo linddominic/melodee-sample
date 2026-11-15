@@ -8,19 +8,27 @@ and the MPC's data: a change to src/melodee/web/static is a reload away, no
 firmware to build or install. The page the MPC carries itself is unchanged.
 
     python3 tools/companion/companion.py            # then open http://localhost:8800/kits
-    python3 tools/companion/companion.py --mpc 192.168.155.1 --port 8800
+    python3 tools/companion/companion.py --mpc 192.168.155.1 --port 8800 --splice ~/Splice/sounds/packs
 
-Only this computer can reach it (127.0.0.1).
+It also offers the Splice sounds on this Mac (tools/companion/splice_library.py)
+as a source in Sounds, copied to the card when they go on a pad.
+
+Only this computer can reach it (127.0.0.1), by localhost or 127.0.0.1.
 """
 import argparse
 import html
 import http.server
+import json
 import re
 import socket
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from splice_library import TYPES as AUDIO_TYPES, SpliceLibrary, default_root  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "src/melodee/web/static"
@@ -43,6 +51,7 @@ def page(title, active, main):
 class Companion(http.server.BaseHTTPRequestHandler):
     mpc = "melodee.local"
     address = "melodee.local" # looked up once: a .local name can take seconds to look up each time
+    splice = None
 
     def reply(self, status, ctype, body, headers=()):
         self.send_response(status)
@@ -65,6 +74,55 @@ class Companion(http.server.BaseHTTPRequestHandler):
             return self.reply(200, TYPES.get(Path(name).suffix, "application/octet-stream"), (STATIC / name).read_bytes())
         return None
 
+    def mpc_call(self, method, path, query, body=None):
+        """(status, bytes) of a request to the MPC, as its own page would make it."""
+        url = "http://%s%s?%s" % (self.address, path, urllib.parse.urlencode(query))
+        headers = {"Host": self.mpc, "X-Melodee": "1"}
+        request = urllib.request.Request(url, data=body if body is not None else (b"" if method == "POST" else None),
+                                         headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=120) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    def json_reply(self, status, value):
+        self.reply(status, "application/json; charset=utf-8", json.dumps(value).encode())
+
+    def companion(self):
+        """/companion/...: what only the Mac has. Refused unless asked by this computer's own name (no DNS rebinding);
+        writes need X-Melodee, which another site's page cannot send without asking first."""
+        host = (self.headers.get("Host") or "").split(":")[0].lower()
+        if host not in ("localhost", "127.0.0.1"):
+            return self.json_reply(421, {"error": "Open the companion at localhost"})
+        url = urllib.parse.urlparse(self.path)
+        query = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        lib = self.splice
+        if url.path == "/companion/hello" and self.command in ("GET", "HEAD"):
+            return self.json_reply(200, {"companion": True, **(lib.hello() if lib else {"splice": False})})
+        if not lib or not lib.available():
+            return self.json_reply(404, {"error": "No Splice folder on this Mac"})
+        if url.path == "/companion/splice/icon" and self.command in ("GET", "HEAD"):
+            png = lib.icon()
+            return self.reply(200, "image/png", png) if png else self.json_reply(404, {"error": "No Splice app here"})
+        if url.path == "/companion/splice/sounds" and self.command in ("GET", "HEAD"):
+            return self.json_reply(200, lib.sounds())
+        if url.path == "/companion/splice/sample" and self.command in ("GET", "HEAD"):
+            path = lib.place(query.get("path", ""))
+            if path is None:
+                return self.json_reply(404, {"error": "No such sound in the Splice folder"})
+            return self.reply(200, AUDIO_TYPES.get(path.suffix.lower(), "application/octet-stream"), path.read_bytes())
+        if url.path == "/companion/splice/import" and self.command == "POST":
+            if "X-Melodee" not in self.headers:
+                return self.json_reply(403, {"error": "Not from Melodee's page"})
+            try:
+                return self.json_reply(200, {"id": lib.import_to_card(query.get("path", ""), self.mpc_call)})
+            except LookupError as e:
+                return self.json_reply(404, {"error": str(e)})
+            except (OSError, ValueError) as e:
+                return self.json_reply(502, {"error": str(e) or "Could not copy it to the card"})
+        return self.json_reply(404, {"error": "Not found"})
+
     def forward(self):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
@@ -82,12 +140,19 @@ class Companion(http.server.BaseHTTPRequestHandler):
         self.reply(status, rh.get("Content-Type", "application/octet-stream"), data, extra)
 
     def do_GET(self):
+        if self.path.startswith("/companion/"):
+            return self.companion()
         if self.local() is None:
             self.forward()
 
     do_HEAD = do_GET
 
     def do_POST(self):
+        if self.path.startswith("/companion/"):
+            length = int(self.headers.get("Content-Length") or 0)
+            if length:
+                self.rfile.read(length)
+            return self.companion()
         self.forward()
 
     def log_message(self, fmt, *args):
@@ -99,14 +164,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mpc", default="melodee.local", help="the MPC's address (melodee.local)")
     parser.add_argument("--port", type=int, default=8800)
+    parser.add_argument("--splice", default=str(default_root()), help="the Splice sounds folder (%(default)s)")
     args = parser.parse_args()
     Companion.mpc = args.mpc
+    Companion.splice = SpliceLibrary(args.splice)
     try:
         Companion.address = socket.gethostbyname(args.mpc)
     except OSError:
         Companion.address = args.mpc # not found now: asked again with each request
     server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Companion)
     print("Melodee companion: http://localhost:%d/kits  (page from %s, data from the MPC at %s, %s)" % (args.port, STATIC, args.mpc, Companion.address))
+    hello = Companion.splice.hello()
+    print("Splice: %s" % ("%d packs in %s" % (hello["packs"], hello["root"]) if hello["splice"] else "no folder at %s (--splice)" % hello["root"]))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

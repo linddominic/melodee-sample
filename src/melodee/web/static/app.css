@@ -107,7 +107,9 @@ body:has(#kits) main { flex: 1; min-height: 0; width: 100%; max-width: 1760px; b
 .kit-side, .sounds, .kit-main { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
 .kit-main { overflow-y: auto; scrollbar-width: thin; }
 .sounds { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
-.sounds-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sounds-bar { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+#sound-source { flex-wrap: nowrap; }
+#sound-source .seg { white-space: nowrap; }
 .sounds-bar .label { margin: 0; }
 .kit-bar { display: flex; gap: 8px; }
 .kit-bar input, #sound-search, .param input, .param select { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--text); background: var(--quiet);
@@ -235,10 +237,24 @@ body.dragging-sound .pad { border-style: dashed; }
 .picker-list li.dir .name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .picker-list li.dir .name b { font-weight: 500; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .picker-list li.dir .name small { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stop-all { margin-right: auto; margin-left: 8px; padding: 4px 10px; font-size: 10px; color: var(--mid); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
+.stop-all { margin-right: auto; margin-left: 8px; padding: 4px 9px; font-size: 10px; white-space: nowrap; color: var(--mid); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
 .stop-all span { font-size: 9px; }
 .stop-all.on { color: var(--bg); background: var(--coral); border-color: var(--coral); }
 .stop-all:disabled { opacity: .45; cursor: default; }
+/* Splice: the app's icon on its source, and a cover for each pack (initials on two of the page's colours). */
+#sound-source .seg img { width: 12px; height: 12px; margin: -2px 5px -2px 0; vertical-align: -1px; border-radius: 3px; }
+.cover { flex: none; display: grid; place-items: center; width: var(--size); height: var(--size); border-radius: calc(var(--size) / 6);
+  background: linear-gradient(var(--turn), var(--a), var(--b)); color: var(--bg); font: 700 calc(var(--size) * .36)/1 Rubik, system-ui, sans-serif;
+  letter-spacing: .02em; box-shadow: 0 1px 0 rgba(255, 255, 255, .15) inset; }
+.picker-list li.pack { min-height: 0; padding: 4px 10px 4px 6px; gap: 10px; }
+.picker-list li.pack::before { display: none; }
+.picker-list li.pack-head { display: flex; align-items: center; gap: 12px; min-height: 0; padding: 6px 4px 10px; background: none; }
+.picker-list li.pack-head::before { display: none; }
+.picker-list li.pack-head .name { display: flex; flex-direction: column; min-width: 0; }
+.picker-list li.pack-head .name b { font-size: 15px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.picker-list li.pack-head .name small { font-size: 11px; color: var(--mid); }
+.kit-from { flex: none; padding: 4px 9px; font-size: 10px; color: var(--bg); background: var(--mint); border: 0; border-radius: 7px; white-space: nowrap; }
+.kit-from[hidden] { display: none; }
 .sound-nav { display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; }
 .back-btn { flex: none; width: 26px; height: 26px; padding: 0; font-size: 18px; line-height: 1; color: var(--text); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
 .back-btn:disabled { opacity: .35; cursor: default; }

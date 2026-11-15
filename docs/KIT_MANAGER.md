@@ -302,6 +302,29 @@ None of the following has been tried on an MPC Sample:
 - Not tested in Safari's or Firefox's AIFF/FLAC support; the browser says
   when it cannot play a file.
 
+### Splice sounds on the Mac (Milestone 3)
+
+The companion (`tools/companion/companion.py`, `splice_library.py`) offers the
+sounds the Splice app has downloaded (`~/Splice/sounds/packs`, else `--splice`)
+as a **Splice** source in Sounds, shown only when the page is opened through
+the companion (`/companion/hello`). Its packs show with a cover made from the
+pack's name (Splice keeps no artwork on the Mac) and the app's own icon, read
+from the installed app at run time and never kept here. A Splice sound put on
+a pad is copied first to `Melodee/Samples/Splice/<Pack>/` on the card through
+the MPC's own Files requests (a copy with the same name and size is used
+again), so the kit plays without the Mac. **Kit from this folder** fills a kit
+from one folder or pack: the drums on the bottom rows, then 808 or bass,
+cymbal and FX, and melodic and vocal hits in the folder's most common key on
+the top row; on one's own kit only the empty pads of the bank in view.
+
+`/companion/...` answers only to `localhost` and `127.0.0.1` (no DNS
+rebinding); the import needs `X-Melodee`; only audio files under the Splice
+folder are read, and nothing is written on the Mac.
+
+Splice's catalog: see docs/KIT_MANAGER_SPLICE.md. Its private search answers
+a browser only (a Cloudflare check); getting past that, or unscrambling its
+previews, is not done here.
+
 ### Working on the page without firmware
 
 `python3 tools/companion/companion.py` (the start of the Mac companion,

@@ -56,6 +56,7 @@
       <div class="kit-filter" role="group" aria-label="Sounds from" id="sound-source">
         <button type="button" class="seg" data-source="sd" aria-pressed="true">SD card</button>
         <button type="button" class="seg" data-source="factory" aria-pressed="false">Factory</button>
+        <button type="button" class="seg" data-source="splice" aria-pressed="false" hidden>Splice</button>
       </div>
     </div>
     <input type="search" id="sound-search" placeholder="Search sounds: kick, hat 808, loop 120…" aria-label="Search sounds">
@@ -68,6 +69,7 @@
     <div class="sound-nav">
       <button type="button" class="back-btn" id="sound-back" title="Back (Backspace in the list)" aria-label="Back" disabled>‹</button>
       <nav class="crumbs" id="picker-crumbs" aria-label="Folder"></nav>
+      <button type="button" class="kit-from" id="kit-from" hidden>Kit from this folder</button>
     </div>
     <ul class="lanes picker-list" id="picker-list" tabindex="0" aria-label="Sounds: arrow keys to step through, Enter to assign"></ul>
     <p class="sounds-hint" id="sounds-hint"></p>
