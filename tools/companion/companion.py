@@ -30,8 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from splice_library import TYPES as AUDIO_TYPES, SpliceLibrary, default_root  # noqa: E402
 from splice_mcp import SpliceMcp  # noqa: E402
-from splice_covers import SpliceCovers  # noqa: E402
-from splice_catalog import SpliceCatalog  # noqa: E402
+from splice_kits import DOWNLOADS, SpliceKits  # noqa: E402
 from splice_library import copy_to_card  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,8 +56,7 @@ class Companion(http.server.BaseHTTPRequestHandler):
     address = "melodee.local" # looked up once: a .local name can take seconds to look up each time
     splice = None
     mcp = None      # the official Splice MCP (splice_mcp.py): sign-in kept in the Keychain
-    covers = None   # pack artwork found through it (splice_covers.py)
-    catalog = None  # Splice's catalog through it: search, and get for a credit (splice_catalog.py)
+    kits = None     # Describe a kit through it, and get for a credit (splice_kits.py)
 
     def reply(self, status, ctype, body, headers=()):
         self.send_response(status)
@@ -132,47 +130,28 @@ class Companion(http.server.BaseHTTPRequestHandler):
                     "background:#17141F;color:#eee'><p>%s</p><script>%s</script>" % (html.escape(words),
                     "window.opener&&window.opener.postMessage('splice-signed-in','*');setTimeout(()=>window.close(),800)" if ok else "")).encode()
             return self.reply(200 if ok else 400, "text/html; charset=utf-8", body)
-        # The catalog: search (no credits), and get (one credit the first time; the page asks first).
-        if url.path == "/companion/splice/catalog" and self.command in ("GET", "HEAD"):
+        # Describe a kit: a search per pad, to a draft (no credits); then get, a sound at a time (asked first).
+        if url.path == "/companion/splice/describe" and self.command == "GET":
             try:
-                found = self.catalog.search(query.get("q", "")[:200], query.get("type", ""),
-                                            int(query.get("bpm_min") or 0), int(query.get("bpm_max") or 0))
+                return self.json_reply(200, self.kits.draft(query.get("text", ""), self.mark))
             except PermissionError as e:
                 return self.json_reply(401, {"error": str(e), "signedOut": True})
             except (OSError, ValueError) as e:
                 return self.json_reply(502, {"error": str(e)})
-            self.mark(found["sounds"])
-            return self.json_reply(200, found)
-        # A catalog sound's pack: its title and cover (from the sound's public page) and the sounds of it found.
-        if url.path == "/companion/splice/pack" and self.command == "GET":
-            seed = {k: query.get(k, "") for k in ("uuid", "name", "label", "link")}
-            if not re.fullmatch(r"[0-9a-fA-F-]{36}", seed["uuid"]) or not seed["link"].startswith("https://splice.com/"):
-                return self.json_reply(400, {"error": "Not a Splice sound"})
-            for k, v in (("bpm", 0), ("key", ""), ("duration", 0.0), ("type", ""), ("tags", [])):
-                seed[k] = v
-            try:
-                pack = self.catalog.pack(seed, self.covers)
-            except PermissionError as e:
-                return self.json_reply(401, {"error": str(e), "signedOut": True})
-            except Exception as e:  # TooMany and the like
-                return self.json_reply(503 if "slow down" in str(e) else 502, {"error": str(e) or "Could not read the pack"})
-            pack["sounds"] = pack["sounds"]
-            self.mark(pack["sounds"])
-            pack["cover"] = self.covers.state(pack["title"]) == "found"
-            return self.json_reply(200, pack)
         if url.path == "/companion/splice/get" and self.command == "POST":
             if "X-Melodee" not in self.headers:
                 return self.json_reply(403, {"error": "Not from Melodee's page"})
             try:
-                path, fresh = self.catalog.get(query.get("uuid", ""), query.get("name", ""), query.get("label", ""))
+                path, fresh = self.kits.get(query.get("uuid", ""), query.get("name", ""), query.get("label", ""))
                 card = copy_to_card(path, query.get("label", "") or "Splice", self.mpc_call)
+                lib.forget() # the Splice source lists it now, under Got with Melodee
             except LookupError as e:
                 return self.json_reply(404, {"error": str(e)})
             except PermissionError as e:
                 return self.json_reply(403, {"error": str(e)})
             except (OSError, ValueError) as e:
                 return self.json_reply(502, {"error": str(e) or "Could not get it"})
-            return self.json_reply(200, {"id": card, "fresh": fresh, "gets": self.catalog.spent, "limit": self.catalog.limit})
+            return self.json_reply(200, {"id": card, "fresh": fresh, "gets": self.kits.spent, "limit": self.kits.limit})
         if url.path == "/companion/splice/logout" and self.command == "POST":
             if "X-Melodee" not in self.headers:
                 return self.json_reply(403, {"error": "Not from Melodee's page"})
@@ -183,12 +162,9 @@ class Companion(http.server.BaseHTTPRequestHandler):
         if url.path == "/companion/splice/icon" and self.command in ("GET", "HEAD"):
             png = lib.icon()
             return self.reply(200, "image/png", png) if png else self.json_reply(404, {"error": "No Splice app here"})
-        # Pack artwork: the states of the packs asked for (looking up those not known yet), and a found cover.
-        if url.path == "/companion/splice/covers" and self.command in ("GET", "HEAD"):
-            packs = [p for p in query.get("packs", "").split("\n") if p][:300]
-            return self.json_reply(200, {p: self.covers.state(p) for p in packs})
+        # A cover one put in a pack's folder; the page makes one else.
         if url.path == "/companion/splice/cover" and self.command in ("GET", "HEAD"):
-            data, kind = self.covers.image(query.get("pack", ""))
+            data, kind = lib.cover(query.get("pack", ""))
             return self.reply(200, kind, data) if data else self.json_reply(404, {"error": "No cover"})
         if url.path == "/companion/splice/sounds" and self.command in ("GET", "HEAD"):
             return self.json_reply(200, lib.sounds())
@@ -216,7 +192,7 @@ class Companion(http.server.BaseHTTPRequestHandler):
                 mine.setdefault(rel.rsplit("/", 1)[-1].lower(), rel)
         for s in sounds:
             s["mine"] = mine.get(s["name"].lower(), "")
-            s["kept"] = bool(self.catalog.local(s["name"], s["label"]))
+            s["kept"] = bool(self.kits.local(s["name"], s["label"]))
 
     def forward(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -263,12 +239,9 @@ def main():
     parser.add_argument("--credit-limit", type=int, default=20, help="Splice sounds a session may get (%(default)s): each new one is a credit")
     args = parser.parse_args()
     Companion.mpc = args.mpc
-    Companion.splice = SpliceLibrary(args.splice)
+    Companion.splice = SpliceLibrary(args.splice, DOWNLOADS)
     Companion.mcp = SpliceMcp("http://localhost:%d/companion/splice/callback" % args.port)
-    def files_of(pack):
-        return [f.rsplit("/", 1)[-1] for f in Companion.splice.sounds()["files"] if f.startswith(pack + "/")]
-    Companion.covers = SpliceCovers(Companion.mcp, files_of, Companion.splice.root)
-    Companion.catalog = SpliceCatalog(Companion.mcp, args.credit_limit)
+    Companion.kits = SpliceKits(Companion.mcp, args.credit_limit)
     try:
         Companion.address = socket.gethostbyname(args.mpc)
     except OSError:

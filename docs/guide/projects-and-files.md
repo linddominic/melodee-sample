@@ -193,6 +193,12 @@ on the card that hold a kit: `Melodee/Projects` and the stock app's
   **Splice** in Sounds lists the packs the Splice app has downloaded to the
   Mac. A Splice sound put on a pad is copied to `Melodee/Samples/Splice` on
   the card first, so the kit plays without the Mac.
+- **Describe a kit**, at the top of **Splice** (signed in to Splice once):
+  type what you want ("dusty boom bap"), and Splice finds a sound for each
+  of the 16 pads. The draft shows each pad's sound, whether you have it (free)
+  or it costs a credit, and **Swap** for another; **Make kit** says the
+  credits first, then gets the sounds and makes the kit. What it gets shows
+  under **Got with Melodee** in Splice.
 - **Kit from this folder** (in any folder or pack) puts sounds that belong
   together on the pads: kicks, snares, hats, claps and percussion on the
   bottom rows, then 808 or bass, cymbal and FX, and melodic and vocal hits in

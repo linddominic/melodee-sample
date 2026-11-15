@@ -264,23 +264,31 @@ img.cover { object-fit: cover; padding: 0; background: var(--quiet); }
 .picker-list li.pack-head .name { display: flex; flex-direction: column; min-width: 0; }
 .picker-list li.pack-head .name b { font-size: 15px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
 .picker-list li.pack-head .name small { font-size: 11px; color: var(--mid); }
-/* The Splice catalog: rows with no waveform yet (a cloud), Listen on splice.com and Get. */
-.picker-list li.cat-sound { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; min-height: 0; padding: 4px 8px 4px 12px; cursor: grab; }
-.picker-list li.cat-sound::before { width: 3px; }
-.picker-list .mini.cloud { display: grid; place-items: center; height: 26px; font-size: 14px; color: var(--dim); }
-.picker-list li.cat-sound .name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.picker-list li.cat-sound .name b { font-weight: 500; font-size: 13px; color: var(--sec); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.picker-list li.cat-sound .name small { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.picker-list .listen { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--mid); text-decoration: none; padding: 4px 6px; border-radius: 6px; }
+/* Describe a kit, at the top of the Splice source, and its draft of 16 pads. */
+.picker-list li.describe { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 0; padding: 12px; margin-bottom: 4px;
+  background: color-mix(in srgb, var(--lilac) 12%, var(--quiet)); }
+.picker-list li.describe::before { background: var(--lilac); }
+.picker-list li.describe b { font-weight: 500; font-size: 14px; color: var(--text); }
+.picker-list li.describe small { font-size: 11px; color: var(--mid); line-height: 1.4; }
+.describe-row { display: flex; gap: 6px; }
+.describe-row input { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.describe-row button { padding: 6px 12px; font-size: 11px; }
+.picker-list li.draft-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; min-height: 0; padding: 8px 6px 10px; background: none; }
+.picker-list li.draft-head::before { display: none; }
+.picker-list li.draft-head b { font-size: 15px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.picker-list li.draft-head small { grid-row: 2; font-size: 11px; color: var(--mid); }
+.picker-list li.draft-head .make { grid-row: 1 / 3; grid-column: 2; padding: 7px 12px; font-size: 11px; background: var(--mint); color: var(--bg); border: 0; border-radius: 8px; }
+.picker-list li.draft-pad { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; min-height: 0; padding: 4px 8px 4px 12px; }
+.picker-list li.draft-pad.playable { cursor: pointer; }
+.picker-list li.draft-pad .pad-no { font: 600 10px/1 ui-monospace, Menlo, monospace; color: var(--mid); }
+.picker-list li.draft-pad .name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.picker-list li.draft-pad .name b { font-weight: 500; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-list li.draft-pad .name small { font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-list li.draft-pad.yours .name small { color: var(--mint); }
+.picker-list li.draft-pad.playing .name b { color: var(--mint); }
+.picker-list .swap { padding: 3px 8px; font-size: 10px; color: var(--sec); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
+.picker-list .listen { font-size: 12px; color: var(--mid); text-decoration: none; padding: 2px 6px; border-radius: 6px; }
 .picker-list .listen:hover { color: var(--text); background: var(--quiet); }
-.picker-list li.cat-sound { grid-template-columns: 52px minmax(0, 1fr) auto auto auto; }
-.picker-list .pack-btn { padding: 4px 7px; font-size: 10px; color: var(--sec); background: var(--quiet); border: 1px solid var(--line); border-radius: 7px; }
-.picker-list li.pack-head .listen { align-self: flex-start; margin-top: 2px; padding: 2px 0; }
-.picker-list .get { padding: 4px 10px; font-size: 10px; color: var(--bg); background: var(--amber); border: 0; border-radius: 7px; }
-.picker-list li.yours .name small { color: var(--mint); }
-.picker-list li.catalog-hint { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 14px; font-size: 12px; line-height: 1.5; color: var(--mid); background: var(--quiet); }
-.picker-list li.catalog-hint::before { display: none; }
-.picker-list li.catalog-hint b { color: var(--text); font-weight: 500; }
 .kit-from { flex: none; padding: 4px 9px; font-size: 10px; color: var(--bg); background: var(--mint); border: 0; border-radius: 7px; white-space: nowrap; }
 .kit-from[hidden] { display: none; }
 .sound-nav { display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; }

@@ -20,6 +20,7 @@ AUDIO = {".wav", ".aif", ".aiff", ".flac", ".ogg", ".oga", ".mp3"}
 TYPES = {".wav": "audio/wav", ".aif": "audio/aiff", ".aiff": "audio/aiff", ".flac": "audio/flac", ".ogg": "audio/ogg",
          ".oga": "audio/ogg", ".mp3": "audio/mpeg"}
 CARD_DIR = ["Melodee", "Samples", "Splice"]
+GOT = "Got with Melodee"   # the top folder the Splice source shows ~/Music/Melodee Splice as (Describe a kit's sounds)
 PACK_CHARS = 40   # a kit holds a sample's whole path in 160 bytes: /media/<card>/Melodee/Samples/Splice/<pack>/<file>
 FILE_CHARS = 60
 
@@ -44,8 +45,9 @@ def shortened(name, most):
 
 
 class SpliceLibrary:
-    def __init__(self, root):
+    def __init__(self, root, got=None):
         self.root = Path(root).expanduser().resolve()
+        self.got = Path(got).expanduser() if got else None
         self.lock = threading.Lock()
         self.listed, self.listed_at = None, 0.0
 
@@ -58,32 +60,53 @@ class SpliceLibrary:
             if self.listed is not None and time.time() - self.listed_at < 30:
                 return self.listed
             files, sizes = [], []
-            for top, dirs, names in os.walk(self.root):
-                dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-                for name in sorted(names):
-                    if name.startswith(".") or Path(name).suffix.lower() not in AUDIO:
-                        continue
-                    path = Path(top) / name
-                    if path.is_symlink():
-                        continue
-                    try:
-                        size = path.stat().st_size
-                    except OSError:
-                        continue
-                    files.append(path.relative_to(self.root).as_posix())
-                    sizes.append(size)
+            for base, prefix in [(self.root, "")] + ([(self.got, GOT + "/")] if self.got and self.got.is_dir() else []):
+                self.walk(base.resolve(), prefix, files, sizes)
             self.listed = {"source": "splice", "files": files, "sizes": sizes, "full": False}
             self.listed_at = time.time()
             return self.listed
+
+    def forget(self):
+        with self.lock:
+            self.listed = None
+
+    def walk(self, base, prefix, files, sizes):
+        for top, dirs, names in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            for name in sorted(names):
+                if name.startswith(".") or Path(name).suffix.lower() not in AUDIO:
+                    continue
+                path = Path(top) / name
+                if path.is_symlink():
+                    continue
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                files.append(prefix + path.relative_to(base).as_posix())
+                sizes.append(size)
 
     def place(self, rel):
         """The file `rel` names under the root, or None: no way out of the folder, audio only, no hidden parts."""
         if not rel or rel.startswith("/") or "\\" in rel or any(p in ("", ".", "..") or p.startswith(".") for p in rel.split("/")):
             return None
-        path = (self.root / rel).resolve()
-        if self.root not in path.parents or not path.is_file() or path.suffix.lower() not in AUDIO:
+        base = self.root
+        if rel.startswith(GOT + "/") and self.got:
+            base, rel = self.got.resolve(), rel[len(GOT) + 1:]
+        path = (base / rel).resolve()
+        if base not in path.parents or not path.is_file() or path.suffix.lower() not in AUDIO:
             return None
         return path
+
+    def cover(self, pack):
+        """A cover one put in a pack's folder (cover.jpg, .png or .webp): (bytes, type), or (None, None)."""
+        if not pack or "/" in pack or pack.startswith("."):
+            return None, None
+        for ext, kind in (("jpg", "image/jpeg"), ("jpeg", "image/jpeg"), ("png", "image/png"), ("webp", "image/webp")):
+            path = self.root / pack / ("cover." + ext)
+            if path.is_file():
+                return path.read_bytes(), kind
+        return None, None
 
     def icon(self):
         """The installed Splice app's own icon as a small PNG (read from the app at run time, never kept in the
@@ -114,7 +137,9 @@ class SpliceLibrary:
         path = self.place(rel)
         if path is None:
             raise LookupError("No such sound in the Splice folder")
-        return copy_to_card(path, rel.split("/")[0] if "/" in rel else "Sounds", mpc)
+        parts = rel.split("/")
+        pack = parts[1] if parts[0] == GOT and len(parts) > 2 else parts[0] if len(parts) > 1 else "Sounds"
+        return copy_to_card(path, pack, mpc)
 
 
 def copy_to_card(path, pack, mpc):

@@ -64,38 +64,32 @@ What the official Splice MCP server offers the Kit Manager, tried on
 
 ## Built (the Mac companion)
 
-All of it through the official MCP and splice.com's public pages, signed in
-once (`tools/companion/splice_mcp.py`, the refresh token in the Mac's login
-Keychain). Nothing reads Splice's private API, gets past its bot check, or
-unscrambles its previews.
+Two parts, each through what Splice offers for it, and nothing else:
 
-- **Catalog** in Sounds (`splice_catalog.py`, `/companion/splice/catalog`):
-  `describe_a_sound` with the One-shots/Loops filter, its Markdown read into
-  rows (label, type, BPM, key, length, tags); 10 a search, as the tool gives.
-  Sounds one has in the Splice folder are marked ✓ and play from there; a
-  sound got before is free again.
-- **Listen**: splice.com may not be shown inside another page
-  (`X-Frame-Options: SAMEORIGIN`), so its page opens in a window of its own
-  beside the Kits page (520×720, used again for each Listen; Stop or Esc
-  closes it), where Play is pressed.
-- **Get** (`/companion/splice/get`): asked first on the page; `download_asset`
-  (one credit the first time), the file kept in `~/Music/Melodee Splice/<label>/`
-  and copied to `Melodee/Samples/Splice/<label>/` on the card. A drop of a
-  catalog sound on a pad gets it the same way. A session may get 20
-  (`--credit-limit`).
-- **Packs** (`/companion/splice/pack`): a catalog sound's public page names
-  its pack and links the pack's page (title, cover); the pack's sounds are
-  gathered with a search per kind ("<title> kick", "<title> snare"…), kept
-  when of the same label and starting with the same file prefix as the sound
-  opened from. Ten searches of ten, so not always the whole pack.
-- **Kit from this pack**: the pack's one-shots planned as for a folder, the
-  credits it costs said first (sounds one has are free), each got and put on
-  its pad.
-- **Pack artwork** for the Mac's packs: see docs/KIT_MANAGER.md; a
-  `cover.jpg`, `.png` or `.webp` in a pack's folder wins.
+| Part | Through | Does |
+| --- | --- | --- |
+| The Splice library | The Splice app's folder on the Mac | Every sound one has: heard, drawn and put on pads. One finds sounds in the Splice app. |
+| Describe a kit | The official MCP (`describe_a_sound`, `download_asset`) | Words to a 16-pad draft, bought with one's credits. |
 
-Splice's pages are read one every three seconds across all of this, and on
-429 the lookups pause.
+Splice's own pages are not read, its private API is not used, and its
+previews are not unscrambled.
+
+- **Sign-in** (`splice_mcp.py`): once, in the browser; the refresh token in
+  the Mac's login Keychain ("Melodee companion: Splice MCP").
+- **Describe a kit** (`splice_kits.py`, `/companion/splice/describe`): a
+  search per kind of pad (14 for 16 pads: the pad's word, then the words
+  described), each answer checked against the pad by the sound's own name and
+  Splice's tags (Splice's search weighs the description more than "808"), up
+  to six choices a pad, melodic pads leaning to the key most of them share.
+  On the page: the draft, each pad's role, label, key and whether it is one's
+  already (✓, free) or a credit; Swap goes to the next choice; ↗ opens the
+  sound on splice.com in a tab. Make kit says the credits first, then gets
+  each (`/companion/splice/get`) and fills a new kit, or one's own kit's
+  empty pads. 20 gets a session (`--credit-limit`).
+- **What is got** is kept in `~/Music/Melodee Splice/<label>/` and shown in
+  the Splice source as **Got with Melodee**, beside the Splice app's packs.
+- **Covers**: made from a pack's name, or a `cover.jpg`, `.png` or `.webp`
+  one puts in its folder.
 
 ## Try it
 
