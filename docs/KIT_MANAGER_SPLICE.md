@@ -76,7 +76,12 @@ unscrambles its previews.
   sound got before is free again.
 - **Listen**: splice.com may not be shown inside another page
   (`X-Frame-Options: SAMEORIGIN`), so its page opens in a small window of its
-  own beside the Kits page, used again for each Listen.
+  own beside the Kits page (460×250, used again for each Listen; Stop or Esc
+  closes it). With the **Melodee Listen** browser extension
+  (`tools/companion/listen-extension`: Chrome, Edge, Brave or Arc, "Load
+  unpacked") that window shows only the sound's name, waveform and Play
+  button and presses Play, Splice's own page and player in one's own browser;
+  it acts only in that window (its name, or `#melodee-listen` on the link).
 - **Get** (`/companion/splice/get`): asked first on the page; `download_asset`
   (one credit the first time), the file kept in `~/Music/Melodee Splice/<label>/`
   and copied to `Melodee/Samples/Splice/<label>/` on the card. A drop of a

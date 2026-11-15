@@ -565,11 +565,17 @@ function planKit(shots) {
 }
 
 // Listen: splice.com may not be shown inside another page (X-Frame-Options), so its page opens in a small window of its
-// own beside this one, used again for the next Listen.
+// own beside this one, used again for the next Listen. With the Melodee Listen extension (tools/companion/
+// listen-extension) that window shows only the sound's waveform and Play, and plays at once; without it, the whole page.
+let listening = null;
 function listenOn(link) {
-  const w = 440, h = 760, left = Math.max(0, (window.screenX || 0) + window.outerWidth - w - 24), top = Math.max(0, (window.screenY || 0) + 80);
-  const win = window.open(link, "splice-listen", `popup,width=${w},height=${h},left=${left},top=${top}`);
-  if (win) win.focus();
+  const w = 460, h = 250, left = Math.max(0, (window.screenX || 0) + window.outerWidth - w - 24), top = Math.max(0, (window.screenY || 0) + 80);
+  listening = window.open(link + "#melodee-listen", "splice-listen", `popup,width=${w},height=${h},left=${left},top=${top}`);
+  if (listening) listening.focus();
+}
+function stopListening() {
+  if (listening && !listening.closed) listening.close();
+  listening = null;
 }
 
 // A pack's cover where there is no artwork: two of the page's colours and the pack's initials, the same for the same
@@ -1003,6 +1009,7 @@ const kits = {
   // Everything that sounds, off (Stop, or Esc outside a text box).
   stopAll() {
     sound.stopAll();
+    stopListening(); // the Listen window too: closing it stops Splice's player
     this.playing = "";
     this.drawPadButtons();
     this.playhead();
